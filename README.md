@@ -66,14 +66,14 @@ your profile:
 {
   "date": 1785214858000,        // the day at 12:00 local, so it can't slide a day
   "time": 8,                    // hours, 0.25 steps
-  "description": "worked on the invoice importer #Blackcurrant #BackendDevelopment",
+  "description": "worked on the invoice importer #ProjectName #BackendDevelopment",
   "isTimeManuallySet": true,
   "isDateManuallySet": true,
   "isSharedActivityEdited": false,
   "status": "ADDED",
   "team": { /* profile.activeTeam */ },
   "user": { /* the whole profile */ },
-  "tags": ["#Blackcurrant", "#BackendDevelopment"],
+  "tags": ["#ProjectName", "#BackendDevelopment"],
   "mentions": []
 }
 ```
@@ -82,7 +82,7 @@ Requests go out one at a time with a 250 ms gap, and each row shows its own resu
 
 ## Notes
 
-- `activityMaxAddDelay` from your team (50 days on Blackcurrant) is surfaced as a warning when the
-  range reaches further back than Emit will accept.
+- `activityMaxAddDelay` from your team (50 days in the bundled sample profile) is surfaced as a
+  warning when the range reaches further back than Emit will accept.
 - Emit's profile endpoint isn't documented, which is why the JSON is pasted rather than fetched by
   default. Drop the URL into the auto-fetch field once you've spotted it in DevTools.

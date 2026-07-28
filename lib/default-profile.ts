@@ -4,7 +4,7 @@ const PROJECT_TAGS = [
   "#AgeoMobileApp",
   "#AgeoWebsite",
   "#AzmeelCommsTool",
-  "#Blackcurrant",
+  "#DemoProject",
   "#BlcLabsWebsite",
   "#BTLiveConsulting",
   "#DepositBook",
@@ -166,37 +166,42 @@ const ACTIVITY_TAGS = [
   "#ProjectManagement",
 ];
 
-const BLACKCURRANT = {
-  _id: "63fdbb709d73d3f19fb4f72d",
-  name: "Blackcurrant",
+const DEMO_USER_ID = "000000000000000000000001";
+const DEMO_TEAM_ID = "000000000000000000000002";
+const DEMO_UNINIT_TEAM_ID = "000000000000000000000003";
+const DEMO_MEMBER_ID = "000000000000000000000004";
+
+const DEMO_TEAM = {
+  _id: DEMO_TEAM_ID,
+  name: "Demo Team",
   isInitialized: true,
-  owner: "63fdbb6f9d73d3f19fb4f725",
+  owner: DEMO_USER_ID,
   activeSize: 1,
   totalSize: 1,
   avatar: "ri-code-s-slash-line",
   avatarColour: "#7209B7",
-  reportCurrency: "INR",
+  reportCurrency: "USD",
   activityMaxAddDelay: 50,
   activityFillingInstructions: "Enter your #project and #activity",
   activityMinWordCount: 2,
   activityMinUniqueTags: 2,
   joinLinkEnabled: false,
   joinDomains: [],
-  joinLink: "7f36be5b-d3ce-4333-92f5-e90f4363859f",
+  joinLink: "00000000-0000-0000-0000-000000000001",
   categorySets: [
     {
       name: "Projects",
       required: true,
       exclusive: true,
       tags: PROJECT_TAGS,
-      _id: "63fdbc929d73d3f19fb62e68",
+      _id: "000000000000000000000005",
     },
     {
       name: "Activity",
       required: true,
       exclusive: true,
       tags: ACTIVITY_TAGS,
-      _id: "63fdbc929d73d3f19fb62e69",
+      _id: "000000000000000000000006",
     },
   ],
   createdAt: "2023-02-28T08:29:36.207Z",
@@ -206,10 +211,10 @@ const BLACKCURRANT = {
 };
 
 const UNINITIALIZED_TEAM = {
-  _id: "67b44f3db7dd99eeb9261bd2",
+  _id: DEMO_UNINIT_TEAM_ID,
   name: "Un-Initialized team",
   isInitialized: false,
-  owner: "67b44f3db7dd99eeb9261bd0",
+  owner: DEMO_USER_ID,
   activeSize: 1,
   totalSize: 1,
   avatar: "default",
@@ -221,7 +226,7 @@ const UNINITIALIZED_TEAM = {
   activityMinUniqueTags: 1,
   joinLinkEnabled: false,
   joinDomains: [],
-  joinLink: "235937b6-e2e5-4deb-99ad-482a294fe124",
+  joinLink: "00000000-0000-0000-0000-000000000002",
   categorySets: [],
   createdAt: "2025-02-18T09:13:33.490Z",
   updatedAt: "2025-02-18T09:13:33.490Z",
@@ -229,43 +234,41 @@ const UNINITIALIZED_TEAM = {
 };
 
 /**
- * The last known get_profile response, bundled so the tag pickers work before
- * anything is pasted. Paste a fresh profile in Connections to replace it.
+ * A sample get_profile shape (fictitious IDs/name/email — no real account
+ * data), bundled so the tag pickers have something to show before a real
+ * profile is pasted. Paste your own profile in Connections to replace it.
  */
 export const DEFAULT_PROFILE: EmitProfile = {
-  _id: "67b44f3db7dd99eeb9261bd0",
-  firebaseId: "KPysii61lcM25c4v0sewKSSK1OF2",
+  _id: DEMO_USER_ID,
   isAnonymous: false,
   isEmailVerified: true,
   isSignupComplete: true,
-  email: "amrit@blackcurrantlabs.com",
-  firstName: "Amrit",
-  lastName: "Suthar",
+  email: "demo@example.com",
+  firstName: "Demo",
+  lastName: "User",
   avatar: "0",
   avatarColour: "#D9EFF7",
-  teams: [UNINITIALIZED_TEAM, BLACKCURRANT],
+  teams: [UNINITIALIZED_TEAM, DEMO_TEAM],
   createdAt: "2025-02-18T09:13:33.482Z",
   devices: [],
   updatedAt: "2026-06-05T11:01:03.894Z",
   __v: 2,
   activeMember: {
-    _id: "67b44fb8b7dd99eeb9261c13",
-    mention: "@amrit",
-    team: "63fdbb709d73d3f19fb4f72d",
-    user: "67b44f3db7dd99eeb9261bd0",
+    _id: DEMO_MEMBER_ID,
+    mention: "@demo",
+    team: DEMO_TEAM_ID,
+    user: DEMO_USER_ID,
     role: "USER",
     isOwner: false,
     status: "ACTIVE",
-    costPerHr: 386,
     createdAt: "2025-02-18T09:15:36.770Z",
     updatedAt: "2026-04-07T10:29:43.076Z",
     __v: 0,
   },
-  activeTeam: BLACKCURRANT,
-  guessedGender: "male",
-  timezoneOffset: -330,
+  activeTeam: DEMO_TEAM,
+  timezoneOffset: 0,
   invites: [],
-  id: "67b44f3db7dd99eeb9261bd0",
+  id: DEMO_USER_ID,
 };
 
 export const DEFAULT_PROFILE_JSON = JSON.stringify(DEFAULT_PROFILE, null, 2);
