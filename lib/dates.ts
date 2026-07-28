@@ -82,3 +82,4 @@ export function rangePreset(kind: "thisMonth" | "lastMonth" | "last7" | "last30"
   start.setDate(start.getDate() - back);
   return { from: toKey(start), to: toKey(now) };
 }
+
