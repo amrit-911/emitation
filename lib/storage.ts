@@ -29,6 +29,8 @@ export const DEFAULT_SETTINGS: Settings = {
     "Write like a senior full-stack engineer logging their day: concrete, specific, no fluff. " +
     "One short sentence per entry, lowercase start, no hashtags in the text itself.",
   aiSummarizeCommits: true,
+  spreadCommits: true,
+  spreadMaxDays: 3,
 };
 
 export function loadSettings(): Settings {

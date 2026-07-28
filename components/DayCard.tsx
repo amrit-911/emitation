@@ -14,7 +14,7 @@ import {
 } from "lucide-react";
 import { Badge, Button, Input, TagPicker, Textarea, cx } from "./ui";
 import { composeDescription, isDayCovered, remainingHours, validateEntry } from "@/lib/emit";
-import { formatHours, prettyDate, weekdayShort } from "@/lib/dates";
+import { formatHours, prettyDate, toKey, weekdayShort } from "@/lib/dates";
 import type { Day, Entry } from "@/lib/types";
 
 export function DayCard({
@@ -151,20 +151,29 @@ export function DayCard({
 
       {showCommits && day.commits.length > 0 && (
         <ul className="space-y-1 border-b border-white/[0.06] bg-black/20 px-4 py-2.5">
-          {day.commits.map((c) => (
-            <li key={c.sha} className="flex items-start gap-2 text-[11px] text-slate-400">
-              <a
-                href={c.url}
-                target="_blank"
-                rel="noreferrer"
-                className="shrink-0 font-mono text-brand-300 hover:underline"
-              >
-                {c.sha.slice(0, 7)}
-              </a>
-              <span className="shrink-0 text-slate-600">{c.repo.split("/").pop()}</span>
-              <span className="truncate">{c.message}</span>
-            </li>
-          ))}
+          {day.commits.map((c) => {
+            const authoredKey = toKey(new Date(c.date));
+            const moved = authoredKey !== day.date;
+            return (
+              <li key={c.sha} className="flex items-start gap-2 text-[11px] text-slate-400">
+                <a
+                  href={c.url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="shrink-0 font-mono text-brand-300 hover:underline"
+                >
+                  {c.sha.slice(0, 7)}
+                </a>
+                <span className="shrink-0 text-slate-600">{c.repo.split("/").pop()}</span>
+                <span className="truncate">{c.message}</span>
+                {moved && (
+                  <span className="ml-auto shrink-0 text-amber-400/80" title="Spread from a commit burst">
+                    ↦ {prettyDate(authoredKey)}
+                  </span>
+                )}
+              </li>
+            );
+          })}
         </ul>
       )}
 

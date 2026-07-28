@@ -41,6 +41,14 @@ written server-side. Tokens expire; paste the new one and carry on.
    filler only size new entries to the remaining hours. A day that already meets the target shows
    as **already filled** and is skipped by both fillers (the wand disables itself). Use **Check
    Emit** in the stats bar to refresh those totals without re-pulling commits.
+   - **Commit spreading** (Timeline card): if you commit once for several days of work, a burst day
+     right after empty gap days gets split backward across them — chronologically, earliest commits
+     to the earliest day — capped at "look back up to N days" so it won't spread a single commit
+     across a real absence. Spread commits show a `↦ moved from <date>` note in the commit list so
+     it's never a mystery why they landed on a day with no matching authored date.
+   - **Polish commit messages with AI** (Repositories card): sends each day's raw commit messages to
+     Gemini and swaps them for one clean sentence — useful when your history is full of "fix", "wip".
+     Project/activity tags are never touched by this; they stay whatever your repo mapping says.
 4. **Gap filler** — days with no commits get written by Gemini from your prompt; each day also has
    its own nudge field, and the wand icon regenerates a single day.
 5. **Push** — every entry is validated against the team rules (min words, min unique tags, one

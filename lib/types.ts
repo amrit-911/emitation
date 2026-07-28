@@ -97,7 +97,12 @@ export type Settings = {
   fallbackProject: string;
   fallbackActivity: string;
   aiPrompt: string;
+  /** Rewrite terse commit messages ("fix", "wip") into a real sentence via AI. */
   aiSummarizeCommits: boolean;
+  /** When a commit day is preceded by empty gap days, spread its commits back across them. */
+  spreadCommits: boolean;
+  /** How many empty days back a commit burst is allowed to spread into. */
+  spreadMaxDays: number;
 };
 
 export type EntryStatus = "idle" | "queued" | "sending" | "done" | "error";

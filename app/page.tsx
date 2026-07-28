@@ -35,6 +35,7 @@ import { DayCard } from "@/components/DayCard";
 import { RepoPicker } from "@/components/RepoPicker";
 import { SettingsDrawer } from "@/components/SettingsDrawer";
 import { useSettings } from "@/lib/storage";
+import { groupCommitsByDate, spreadCommitBursts } from "@/lib/commitPlanning";
 import {
   activityTags,
   composeDescription,
@@ -113,7 +114,12 @@ export default function Home() {
   /* ------------------------------------------------------------ timeline */
 
   const entriesFromCommits = useCallback(
-    (date: string, commits: Commit[], targetHours: number): Entry[] => {
+    (
+      date: string,
+      commits: Commit[],
+      targetHours: number,
+      textOverrides?: Map<string, string>,
+    ): Entry[] => {
       if (!commits.length || targetHours <= 0) return [];
       const groups = new Map<string, Commit[]>();
       for (const c of commits) {
@@ -129,11 +135,14 @@ export default function Home() {
       return repoIds.map((repoId, i) => {
         const list = groups.get(repoId)!;
         const mapping = settings.repoMap[repoId];
-        const headline = list
-          .map((c) => c.message)
-          .filter((m) => !/^merge (branch|pull request)/i.test(m))
-          .slice(0, 3)
-          .join("; ");
+        const polished = textOverrides?.get(`${date}::${repoId}`);
+        const headline =
+          polished ??
+          list
+            .map((c) => c.message)
+            .filter((m) => !/^merge (branch|pull request)/i.test(m))
+            .slice(0, 3)
+            .join("; ");
         return {
           id: uid(),
           date,
@@ -151,20 +160,19 @@ export default function Home() {
   );
 
   /**
-   * Rebuilds the day list for the range. Passing `commits` reseeds every
-   * entry; passing `existing` refreshes already-logged hours from Emit
-   * without touching entries that haven't been pushed yet.
+   * Rebuilds the day list for the range. Passing `commitsByDate` (already
+   * grouped and, if enabled, spread across empty runs — see fetchCommits)
+   * reseeds every commit-derived entry; passing `existing` refreshes
+   * already-logged hours from Emit without touching unpushed entries.
    */
   const buildTimeline = useCallback(
-    (opts?: { commits?: Commit[]; existing?: ExistingByDate }) => {
-      const { commits, existing } = opts ?? {};
+    (opts?: {
+      commitsByDate?: Map<string, Commit[]>;
+      existing?: ExistingByDate;
+      textOverrides?: Map<string, string>;
+    }) => {
+      const { commitsByDate, existing, textOverrides } = opts ?? {};
       const keys = eachDay(range.from, range.to).filter((k) => keepDay(k, settings.weekend));
-      const byDate = new Map<string, Commit[]>();
-      for (const c of commits ?? []) {
-        const key = toKey(new Date(c.date));
-        if (!byDate.has(key)) byDate.set(key, []);
-        byDate.get(key)!.push(c);
-      }
 
       setDays((prev) => {
         const prevByDate = new Map(prev.map((d) => [d.date, d]));
@@ -174,7 +182,7 @@ export default function Home() {
           const existingHours = fresh?.hours ?? old?.existingHours ?? 0;
           const existingEntries = fresh?.entries ?? old?.existingEntries ?? [];
 
-          if (!commits) {
+          if (!commitsByDate) {
             if (old) return { ...old, existingHours, existingEntries };
             return {
               date,
@@ -187,7 +195,7 @@ export default function Home() {
             };
           }
 
-          const dayCommits = byDate.get(date) ?? [];
+          const dayCommits = commitsByDate.get(date) ?? [];
           const target = remainingHours({ existingHours }, settings.hoursPerDay);
           return {
             date,
@@ -195,7 +203,7 @@ export default function Home() {
             enabled: old?.enabled ?? true,
             hint: old?.hint,
             commits: dayCommits,
-            entries: entriesFromCommits(date, dayCommits, target),
+            entries: entriesFromCommits(date, dayCommits, target, textOverrides),
             existingHours,
             existingEntries,
           };
@@ -264,6 +272,40 @@ export default function Home() {
   }
 
   /* ------------------------------------------------------------- commits */
+
+  /** Sends each (day, repo) group's raw messages to Gemini for a clean sentence. */
+  async function polishCommitMessages(commitsByDate: Map<string, Commit[]>): Promise<Map<string, string>> {
+    const items: { id: string; repo: string; messages: string[] }[] = [];
+    for (const [date, commits] of commitsByDate) {
+      const groups = new Map<string, Commit[]>();
+      for (const c of commits) {
+        if (!groups.has(c.repoId)) groups.set(c.repoId, []);
+        groups.get(c.repoId)!.push(c);
+      }
+      for (const [repoId, list] of groups) {
+        items.push({
+          id: `${date}::${repoId}`,
+          repo: list[0].repo,
+          messages: list.slice(0, 8).map((c) => c.message),
+        });
+      }
+    }
+    if (!items.length) return new Map();
+
+    const CHUNK = 20;
+    const out = new Map<string, string>();
+    for (let i = 0; i < items.length; i += CHUNK) {
+      const res = await fetch("/api/ai/polish", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ items: items.slice(i, i + CHUNK) }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Polish failed");
+      (data.results as { id: string; text: string }[]).forEach((r) => out.set(r.id, r.text));
+    }
+    return out;
+  }
 
   async function fetchCommits() {
     const selected = repos.filter((r) => settings.selectedRepos.includes(r.id));
@@ -338,7 +380,41 @@ export default function Home() {
       if (failed) throw new Error(failed.error);
 
       const commits = results.flatMap((r) => r.commits ?? []);
-      buildTimeline({ commits, existing });
+
+      const keys = eachDay(range.from, range.to).filter((k) => keepDay(k, settings.weekend));
+      const prevByDate = new Map(days.map((d) => [d.date, d]));
+      const metaFor = (key: string) => {
+        const fresh = existing?.get(key);
+        const old = prevByDate.get(key);
+        return {
+          enabled: old?.enabled ?? true,
+          existingHours: fresh?.hours ?? old?.existingHours ?? 0,
+        };
+      };
+
+      const rawByDate = groupCommitsByDate(commits);
+      const commitsByDate = settings.spreadCommits
+        ? spreadCommitBursts(
+            rawByDate,
+            keys,
+            (key) => {
+              const m = metaFor(key);
+              return m.enabled && remainingHours({ existingHours: m.existingHours }, settings.hoursPerDay) > 0.01;
+            },
+            settings.spreadMaxDays,
+          )
+        : rawByDate;
+
+      let textOverrides: Map<string, string> | undefined;
+      if (settings.aiSummarizeCommits && commits.length) {
+        try {
+          textOverrides = await polishCommitMessages(commitsByDate);
+        } catch (err) {
+          notify("info", `Commit polish skipped: ${(err as Error).message}`);
+        }
+      }
+
+      buildTimeline({ commitsByDate, existing, textOverrides });
       results.flatMap((r) => r.warnings ?? []).slice(0, 3).forEach((w) => notify("info", w));
       notify("ok", `${commits.length} commits pulled from ${selected.length} repos`);
     } catch (err) {
@@ -616,6 +692,34 @@ export default function Home() {
               />
             </div>
 
+            <div className="mt-3 space-y-1.5 rounded-xl border border-white/8 bg-white/2 px-3 py-2">
+              <p className="text-[11px] font-medium uppercase tracking-wider text-slate-500">
+                Commit spreading
+              </p>
+              <Toggle
+                checked={settings.spreadCommits}
+                onChange={(v) => patch({ spreadCommits: v })}
+                label="Spread bursts into empty days"
+                hint="A commit day right after empty gaps gets split backward across them"
+              />
+              {settings.spreadCommits && (
+                <div className="flex items-center gap-2 pl-1 pt-1">
+                  <Label htmlFor="spreadMax">Look back up to</Label>
+                  <Input
+                    id="spreadMax"
+                    type="number"
+                    min={1}
+                    max={14}
+                    step={1}
+                    value={settings.spreadMaxDays}
+                    onChange={(e) => patch({ spreadMaxDays: Math.max(1, Number(e.target.value) || 3) })}
+                    className="h-7 w-16 py-0 text-center text-xs"
+                  />
+                  <span className="text-[11px] text-slate-500">days</span>
+                </div>
+              )}
+            </div>
+
             <div className="mt-3 grid grid-cols-2 gap-2">
               <div>
                 <Label htmlFor="hpd">Hours / day</Label>
@@ -713,6 +817,15 @@ export default function Home() {
                     },
                   })
                 }
+              />
+            </div>
+
+            <div className="mt-3 rounded-xl border border-white/8 bg-white/2 px-3 py-2">
+              <Toggle
+                checked={settings.aiSummarizeCommits}
+                onChange={(v) => patch({ aiSummarizeCommits: v })}
+                label="Polish commit messages with AI"
+                hint="Turns 'fix', 'wip' into a real sentence — tags stay from your repo mapping"
               />
             </div>
           </Card>
