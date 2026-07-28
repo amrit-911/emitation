@@ -4,6 +4,7 @@ import { useState } from "react";
 import {
   AlertTriangle,
   CheckCircle2,
+  Clock,
   Download,
   KeyRound,
   Loader2,
@@ -12,6 +13,7 @@ import {
 } from "lucide-react";
 import {
   Badge,
+  BitbucketMark,
   Button,
   Drawer,
   GithubMark,
@@ -26,7 +28,7 @@ import type { EmitProfile, Repo, RepoProvider, Settings } from "@/lib/types";
 import { parseProfile } from "@/lib/emit";
 import { DEFAULT_PROFILE_JSON } from "@/lib/default-profile";
 
-type Tab = "emit" | "github" | "gitlab";
+type Tab = "emit" | "github" | "gitlab" | "bitbucket";
 
 export function SettingsDrawer({
   open,
@@ -141,6 +143,7 @@ export function SettingsDrawer({
             { id: "emit", label: "Emit", icon: <KeyRound className="size-3.5" /> },
             { id: "github", label: "GitHub", icon: <GithubMark className="size-3.5" /> },
             { id: "gitlab", label: "GitLab", icon: <GitlabMark className="size-3.5" /> },
+            { id: "bitbucket", label: "Bitbucket", icon: <BitbucketMark className="size-3.5" /> },
           ] as const
         ).map((t) => (
           <button
@@ -343,7 +346,7 @@ export function SettingsDrawer({
             </p>
           )}
         </div>
-      ) : (
+      ) : tab === "gitlab" ? (
         <div className="space-y-5">
           <div>
             <Label htmlFor="glBaseUrl">Instance URL</Label>
@@ -427,6 +430,19 @@ export function SettingsDrawer({
               them on the main screen.
             </p>
           )}
+        </div>
+      ) : (
+        <div className="flex flex-col items-center gap-3 rounded-xl border border-dashed border-white/10 px-6 py-12 text-center">
+          <BitbucketMark className="size-8 text-slate-600" />
+          <div>
+            <p className="text-sm font-medium text-slate-300">Coming soon</p>
+            <p className="mt-1 text-xs text-slate-500">
+              Bitbucket repos aren&rsquo;t wired up yet — GitHub and GitLab work today.
+            </p>
+          </div>
+          <Badge tone="slate">
+            <Clock className="size-3" /> not yet available
+          </Badge>
         </div>
       )}
     </Drawer>

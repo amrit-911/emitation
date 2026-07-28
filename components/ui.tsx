@@ -18,6 +18,15 @@ export function GithubMark({ className }: { className?: string }) {
   );
 }
 
+/** Bitbucket's mark, since lucide only ships generic icons. */
+export function BitbucketMark({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 16 16" fill="currentColor" aria-hidden className={cx("size-4", className)}>
+      <path d="M0.7 1.4a0.6 0.6 0 0 0-0.59 0.7l2.13 12.9a0.78 0.78 0 0 0 0.76 0.65h9.6a0.58 0.58 0 0 0 0.58-0.49L15.3 2.1a0.6 0.6 0 0 0-0.59-0.7ZM9.5 10.4H6.53l-0.8-4.7h4.5Z" />
+    </svg>
+  );
+}
+
 /** GitLab's tanuki mark, since lucide only ships generic icons. */
 export function GitlabMark({ className }: { className?: string }) {
   return (
