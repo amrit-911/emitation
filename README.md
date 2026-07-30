@@ -22,6 +22,7 @@ Open http://localhost:3000 and fill in **Connections**:
 | Auto-fetch URL | Optional. The profile request URL, so you can refresh it with one click later |
 | GitHub PAT | Classic token with `repo`, or fine-grained with Contents + Metadata read |
 | GitLab PAT | User Settings → Access Tokens, scope `read_api`. Works against gitlab.com or a self-hosted instance URL |
+| Bitbucket | Atlassian account email + an API token from id.atlassian.com → Security → API tokens (`read:repository:bitbucket`, `read:account`). Leave the email blank only for a workspace/repo *access token*, which authenticates as a Bearer on its own |
 
 Everything is stored in this browser's `localStorage` under `emitation.settings.v1` — nothing is
 written server-side. Tokens expire; paste the new one and carry on.
@@ -30,13 +31,17 @@ written server-side. Tokens expire; paste the new one and carry on.
 
 1. **Timeline** — pick a range (or a preset), decide whether Saturdays and Sundays get filled
    (both off by default), and set hours per day.
-2. **Repositories** — load repos from GitHub and/or GitLab (Connections has a tab for each), tick
-   the ones that count, and map each to an Emit `#Project` plus a default `#Activity`. Unmapped
-   repos fall back to the defaults.
-3. **Pull** — fetches commits in range for the selected repos across both providers at once
+2. **Repositories** — load repos from GitHub, GitLab and/or Bitbucket (Connections has a tab for
+   each), tick the ones that count, and map each to an Emit `#Project` plus a default `#Activity`.
+   Unmapped repos fall back to the defaults. Repos are keyed `provider:owner/name`, so the same
+   name on two providers never collides.
+3. **Pull** — fetches commits in range for the selected repos across all three providers at once
    (optionally across all branches), groups them per day per repo, and splits the day's hours
-   between them. GitLab's commits API has no username filter, so GitLab-side author filtering only
-   matches on email. **Pull** also checks `list_activities` for what's already logged on Emit for
+   between them. Author filtering differs per provider: GitHub filters server-side by
+   username/email, while GitLab and Bitbucket have no author parameter, so their commits are
+   matched after fetching (GitLab by email; Bitbucket by email or username). Bitbucket also has no
+   `since`/`until` on its commits endpoint, so it pages from newest and stops once a whole page
+   predates the range. **Pull** also checks `list_activities` for what's already logged on Emit for
    each day in range — a green badge shows the logged total, and both the commit split and the AI
    filler only size new entries to the remaining hours. A day that already meets the target shows
    as **already filled** and is skipped by both fillers (the wand disables itself). Use **Check

@@ -4,7 +4,6 @@ import { useState } from "react";
 import {
   AlertTriangle,
   CheckCircle2,
-  Clock,
   Download,
   KeyRound,
   Loader2,
@@ -54,6 +53,7 @@ export function SettingsDrawer({
   const [fetchingProfile, setFetchingProfile] = useState(false);
   const [loadingGithub, setLoadingGithub] = useState(false);
   const [loadingGitlab, setLoadingGitlab] = useState(false);
+  const [loadingBitbucket, setLoadingBitbucket] = useState(false);
 
   async function fetchProfile() {
     setFetchingProfile(true);
@@ -115,6 +115,32 @@ export function SettingsDrawer({
       notify("err", `GitLab: ${(err as Error).message}`);
     } finally {
       setLoadingGitlab(false);
+    }
+  }
+
+  async function loadBitbucketRepos() {
+    setLoadingBitbucket(true);
+    try {
+      const res = await fetch("/api/bitbucket/repos", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          token: settings.bitbucketToken,
+          authEmail: settings.bitbucketAuthEmail,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed");
+      onReposLoaded(data.repos as Repo[], "bitbucket", data.login as string);
+      if (!settings.bitbucketUser && data.login) patch({ bitbucketUser: data.login });
+      notify(
+        "ok",
+        `Loaded ${data.repos.length} Bitbucket repos${data.login ? ` for @${data.login}` : ""}`,
+      );
+    } catch (err) {
+      notify("err", `Bitbucket: ${(err as Error).message}`);
+    } finally {
+      setLoadingBitbucket(false);
     }
   }
 
@@ -386,7 +412,7 @@ export function SettingsDrawer({
             </div>
             <p className="mt-1.5 text-xs text-slate-500">
               User Settings &rarr; Access Tokens &rarr; scope <code>read_api</code>. GitLab has no
-              fine-grained repo scope like GitHub's Contents-only.
+              fine-grained repo scope like GitHub&rsquo;s Contents-only.
             </p>
           </div>
 
@@ -411,8 +437,8 @@ export function SettingsDrawer({
             </div>
           </div>
           <p className="-mt-2 text-xs text-slate-500">
-            GitLab's commits API has no username filter — leave emails blank to pull every commit in
-            the selected projects, or list yours to filter.
+            GitLab&rsquo;s commits API has no username filter — leave emails blank to pull every
+            commit in the selected projects, or list yours to filter.
           </p>
 
           <div className="rounded-xl border border-white/8 bg-white/2 px-3 py-2">
@@ -432,17 +458,93 @@ export function SettingsDrawer({
           )}
         </div>
       ) : (
-        <div className="flex flex-col items-center gap-3 rounded-xl border border-dashed border-white/10 px-6 py-12 text-center">
-          <BitbucketMark className="size-8 text-slate-600" />
+        <div className="space-y-5">
           <div>
-            <p className="text-sm font-medium text-slate-300">Coming soon</p>
-            <p className="mt-1 text-xs text-slate-500">
-              Bitbucket repos aren&rsquo;t wired up yet — GitHub and GitLab work today.
+            <Label htmlFor="bbEmail">Atlassian account email</Label>
+            <Input
+              id="bbEmail"
+              spellCheck={false}
+              value={settings.bitbucketAuthEmail}
+              onChange={(e) => patch({ bitbucketAuthEmail: e.target.value.trim() })}
+              placeholder="you@example.com"
+              className="font-mono text-[11px]"
+            />
+            <p className="mt-1.5 text-xs text-slate-500">
+              Paired with the API token below for Basic auth. Leave blank only if you&rsquo;re using a
+              workspace or repository <em>access token</em>, which authenticates on its own.
             </p>
           </div>
-          <Badge tone="slate">
-            <Clock className="size-3" /> not yet available
-          </Badge>
+
+          <div>
+            <Label htmlFor="bbToken">API token</Label>
+            <div className="flex gap-2">
+              <Input
+                id="bbToken"
+                type="password"
+                spellCheck={false}
+                value={settings.bitbucketToken}
+                onChange={(e) => patch({ bitbucketToken: e.target.value.trim() })}
+                placeholder="ATATT..."
+                className="font-mono text-[11px]"
+              />
+              <Button
+                onClick={loadBitbucketRepos}
+                disabled={!settings.bitbucketToken || loadingBitbucket}
+              >
+                {loadingBitbucket ? (
+                  <Loader2 className="size-4 animate-spin" />
+                ) : (
+                  <BitbucketMark className="size-4" />
+                )}
+                Load repos
+              </Button>
+            </div>
+            <p className="mt-1.5 text-xs text-slate-500">
+              id.atlassian.com &rarr; Security &rarr; API tokens, with the{" "}
+              <code>read:repository:bitbucket</code> and <code>read:account</code> scopes.
+            </p>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <Label htmlFor="bbUser">Bitbucket username</Label>
+              <Input
+                id="bbUser"
+                value={settings.bitbucketUser}
+                onChange={(e) => patch({ bitbucketUser: e.target.value.trim() })}
+                placeholder="octocat"
+              />
+            </div>
+            <div>
+              <Label htmlFor="bbEmails">Commit emails</Label>
+              <Input
+                id="bbEmails"
+                value={settings.bitbucketEmails}
+                onChange={(e) => patch({ bitbucketEmails: e.target.value })}
+                placeholder="me@work.com, me@home.com"
+              />
+            </div>
+          </div>
+          <p className="-mt-2 text-xs text-slate-500">
+            Bitbucket&rsquo;s commits API has no author filter, so these are matched after fetching.
+            Leave both blank to pull every commit in the selected repos.
+          </p>
+
+          <div className="rounded-xl border border-white/8 bg-white/2 px-3 py-2">
+            <Toggle
+              checked={settings.scanAllBranches}
+              onChange={(v) => patch({ scanAllBranches: v })}
+              label="Scan all branches"
+              hint="Shared across providers — off means only each repo's main branch."
+            />
+          </div>
+
+          {repos.some((r) => r.provider === "bitbucket") && (
+            <p className="text-xs text-slate-500">
+              {repos.filter((r) => r.provider === "bitbucket").length} repos available. Pick and map
+              them on the main screen.
+            </p>
+          )}
         </div>
       )}
     </Drawer>

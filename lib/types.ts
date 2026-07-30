@@ -29,14 +29,14 @@ export type EmitProfile = {
   [k: string]: unknown;
 };
 
-export type RepoProvider = "github" | "gitlab";
+export type RepoProvider = "github" | "gitlab" | "bitbucket";
 
 export type Commit = {
   sha: string;
   /** Matches Repo.id — used for repoMap lookups and per-day grouping. */
   repoId: string;
   provider: RepoProvider;
-  /** owner/repo (GitHub) or namespace/path (GitLab), for display. */
+  /** owner/repo (GitHub), namespace/path (GitLab), workspace/slug (Bitbucket). */
   repo: string;
   message: string;
   /** ISO string of the commit's author date */
@@ -48,7 +48,7 @@ export type Commit = {
 };
 
 export type Repo = {
-  /** `${provider}:${fullName}` — stable key across both providers. */
+  /** `${provider}:${fullName}` — stable key across every provider. */
   id: string;
   provider: RepoProvider;
   fullName: string;
@@ -89,6 +89,13 @@ export type Settings = {
   gitlabUser: string;
   /** GitLab's commits API has no username filter, only emails. */
   gitlabEmails: string;
+  /** Atlassian account email — pairs with the API token for Basic auth. */
+  bitbucketAuthEmail: string;
+  /** Atlassian API token, or a workspace/repo access token (used as Bearer if no email). */
+  bitbucketToken: string;
+  bitbucketUser: string;
+  /** Bitbucket's commits API has no author filter, only post-hoc email matching. */
+  bitbucketEmails: string;
   scanAllBranches: boolean;
   selectedRepos: string[];
   repoMap: Record<string, RepoMapping>;

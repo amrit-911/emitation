@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { GitBranch, Lock, Search } from "lucide-react";
-import { Badge, Button, GithubMark, GitlabMark, TagPicker, cx } from "./ui";
+import { Badge, BitbucketMark, Button, GithubMark, GitlabMark, TagPicker, cx } from "./ui";
 import type { Repo, RepoMapping } from "@/lib/types";
 
 export function RepoPicker({
@@ -43,7 +43,8 @@ export function RepoPicker({
   if (repos.length === 0) {
     return (
       <p className="rounded-xl border border-dashed border-white/10 px-4 py-6 text-center text-xs text-slate-500">
-        Load your repos from Connections → GitHub or GitLab to map them onto Emit projects.
+        Load your repos from Connections → GitHub, GitLab or Bitbucket to map them onto Emit
+        projects.
       </p>
     );
   }
@@ -113,6 +114,8 @@ export function RepoPicker({
                 >
                   {repo.provider === "gitlab" ? (
                     <GitlabMark className="size-3.5 shrink-0 text-orange-400" />
+                  ) : repo.provider === "bitbucket" ? (
+                    <BitbucketMark className="size-3.5 shrink-0 text-blue-400" />
                   ) : (
                     <GithubMark className="size-3.5 shrink-0 text-slate-400" />
                   )}

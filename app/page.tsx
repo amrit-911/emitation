@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import {
   Badge,
+  BitbucketMark,
   Button,
   Card,
   GithubMark,
@@ -57,7 +58,7 @@ import {
   toKey,
   weekdayShort,
 } from "@/lib/dates";
-import type { Commit, Day, Entry, ExistingEntry, Repo, RepoProvider } from "@/lib/types";
+import type { Commit, Day, Entry, ExistingEntry, Repo } from "@/lib/types";
 
 type ExistingByDate = Map<string, { hours: number; entries: ExistingEntry[] }>;
 
@@ -311,6 +312,7 @@ export default function Home() {
     const selected = repos.filter((r) => settings.selectedRepos.includes(r.id));
     const ghRepos = selected.filter((r) => r.provider === "github");
     const glRepos = selected.filter((r) => r.provider === "gitlab");
+    const bbRepos = selected.filter((r) => r.provider === "bitbucket");
 
     if (!selected.length) return notify("err", "Pick at least one repo");
     if (ghRepos.length && !settings.githubToken) {
@@ -318,6 +320,9 @@ export default function Home() {
     }
     if (glRepos.length && !settings.gitlabToken) {
       return notify("err", "Add a GitLab token in Connections first");
+    }
+    if (bbRepos.length && !settings.bitbucketToken) {
+      return notify("err", "Add a Bitbucket token in Connections first");
     }
 
     setBusy("commits");
@@ -363,6 +368,32 @@ export default function Home() {
               sinceISO: since.toISOString(),
               untilISO: until.toISOString(),
               authorEmails,
+              allBranches: settings.scanAllBranches,
+            }),
+          }).then((r) => r.json()),
+        );
+      }
+
+      if (bbRepos.length) {
+        const authorEmails = settings.bitbucketEmails
+          .split(",")
+          .map((e) => e.trim())
+          .filter(Boolean);
+        jobs.push(
+          fetch("/api/bitbucket/commits", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({
+              token: settings.bitbucketToken,
+              authEmail: settings.bitbucketAuthEmail,
+              repos: bbRepos.map((r) => ({
+                fullName: r.fullName,
+                defaultBranch: r.defaultBranch,
+              })),
+              sinceISO: since.toISOString(),
+              untilISO: until.toISOString(),
+              authorEmails,
+              authorUsernames: [settings.bitbucketUser].filter(Boolean),
               allBranches: settings.scanAllBranches,
             }),
           }).then((r) => r.json()),
@@ -611,6 +642,7 @@ export default function Home() {
             <StatusPill ok={Boolean(profile)} label={profile?.activeTeam?.name ?? "profile"} />
             <StatusPill ok={Boolean(settings.githubToken)} label="github" />
             <StatusPill ok={Boolean(settings.gitlabToken)} label="gitlab" />
+            <StatusPill ok={Boolean(settings.bitbucketToken)} label="bitbucket" />
           </div>
 
           <div className="ml-auto flex items-center gap-3">
@@ -767,8 +799,9 @@ export default function Home() {
             <SectionTitle
               icon={
                 <span className="flex items-center gap-1">
-                  <GithubMark className="size-4" />
-                  <GitlabMark className="size-4 text-orange-400" />
+                  <GithubMark className="size-3.5" />
+                  <GitlabMark className="size-3.5 text-orange-400" />
+                  <BitbucketMark className="size-3.5 text-blue-400" />
                 </span>
               }
               title="Repositories"
