@@ -1,5 +1,12 @@
 import { NextResponse } from "next/server";
-import { BITBUCKET_API, bitbucketHeaders, emailFromRaw, paginate, splitFullName } from "@/lib/bitbucket";
+import {
+  BITBUCKET_API,
+  authHint,
+  bitbucketHeaders,
+  emailFromRaw,
+  paginate,
+  splitFullName,
+} from "@/lib/bitbucket";
 import type { Commit } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -113,7 +120,12 @@ export async function POST(req: Request) {
     });
 
     if (!result.ok && result.status !== 404) {
-      warnings.push(`${repo.fullName}: Bitbucket responded ${result.status}`);
+      const parts = [
+        `${repo.fullName}: Bitbucket responded ${result.status}`,
+        result.detail,
+        authHint(result.status, Boolean(authEmail?.trim())),
+      ].filter(Boolean);
+      warnings.push(parts.join(" — "));
     }
     return out;
   }

@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { BITBUCKET_API, bitbucketHeaders, paginate } from "@/lib/bitbucket";
+import { BITBUCKET_API, authHint, bitbucketError, bitbucketHeaders, paginate } from "@/lib/bitbucket";
 import type { Repo } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -21,28 +21,22 @@ export async function POST(req: Request) {
   const { token, authEmail } = (await req.json()) as { token?: string; authEmail?: string };
   if (!token) return NextResponse.json({ error: "Bitbucket token is required" }, { status: 400 });
 
+  const usingBasic = Boolean(authEmail?.trim());
   const headers = bitbucketHeaders(token, authEmail);
 
   try {
     // Access tokens are scoped to a workspace/repo and can't read /user, so a
-    // failure here isn't fatal — only the display name is lost.
+    // failure here is never fatal — only the display name is lost. /user also
+    // needs `read:account`, which a repo-only API token won't have. The reason
+    // is kept so it can be reported if the repositories call fails too.
     let login = "";
+    let userIssue = "";
     const me = await fetch(`${BITBUCKET_API}/user`, { headers, cache: "no-store" });
     if (me.ok) {
       const user = (await me.json()) as BbUser;
       login = user.username || user.nickname || user.display_name || "";
-    } else if (me.status === 401 || me.status === 403) {
-      const usingBasic = Boolean(authEmail?.trim());
-      return NextResponse.json(
-        {
-          error:
-            `Bitbucket rejected the credentials (${me.status}). ` +
-            (usingBasic
-              ? "Check the Atlassian account email and that the API token has Repositories: Read."
-              : "Leave the email blank only for workspace/repo access tokens; for an Atlassian API token, fill in the email."),
-        },
-        { status: 502 },
-      );
+    } else {
+      userIssue = `GET /user → ${me.status}: ${await bitbucketError(me)}`;
     }
 
     const repos: Repo[] = [];
@@ -66,13 +60,16 @@ export async function POST(req: Request) {
     );
 
     if (!result.ok) {
-      return NextResponse.json(
-        { error: `Bitbucket responded ${result.status} while listing repositories` },
-        { status: 502 },
-      );
+      const parts = [
+        `Bitbucket responded ${result.status} listing repositories`,
+        result.detail,
+        authHint(result.status, usingBasic),
+        userIssue,
+      ].filter(Boolean);
+      return NextResponse.json({ error: parts.join(" — ") }, { status: 502 });
     }
 
-    return NextResponse.json({ login, repos });
+    return NextResponse.json({ login, repos, warning: userIssue || undefined });
   } catch (err) {
     return NextResponse.json({ error: (err as Error).message }, { status: 500 });
   }

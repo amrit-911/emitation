@@ -19,6 +19,31 @@ export function bitbucketHeaders(token: string, authEmail?: string): Record<stri
 export type BitbucketPage<T> = { values?: T[]; next?: string };
 
 /**
+ * Bitbucket errors carry the useful part in `error.message` — without it a 401
+ * is indistinguishable from a wrong email, an unscoped token and a revoked one.
+ */
+export async function bitbucketError(res: Response): Promise<string> {
+  const text = await res.text().catch(() => "");
+  try {
+    const body = JSON.parse(text) as { error?: { message?: string; detail?: string } };
+    return body.error?.detail || body.error?.message || text.slice(0, 200);
+  } catch {
+    return text.slice(0, 200);
+  }
+}
+
+/** Turns a 401/403 into the specific thing that is most likely misconfigured. */
+export function authHint(status: number, usingBasic: boolean): string {
+  if (status !== 401 && status !== 403) return "";
+  return usingBasic
+    ? "Basic auth was used. The email must be the Atlassian account email (not the Bitbucket username), " +
+        "and the token must be a scoped API token from id.atlassian.com — classic API tokens with no " +
+        "scopes are rejected by Bitbucket."
+    : "Bearer auth was used because the email field is blank. That only works for workspace or " +
+        "repository access tokens; an Atlassian API token needs the email filled in.";
+}
+
+/**
  * Bitbucket paginates with an opaque `next` URL rather than page numbers.
  * `onPage` returns false to stop early (used to bail once commits predate
  * the requested range).
@@ -28,11 +53,11 @@ export async function paginate<T>(
   headers: Record<string, string>,
   maxPages: number,
   onPage: (values: T[]) => boolean | void,
-): Promise<{ ok: true } | { ok: false; status: number }> {
+): Promise<{ ok: true } | { ok: false; status: number; detail: string }> {
   let url: string | undefined = startUrl;
   for (let page = 0; page < maxPages && url; page += 1) {
     const res: Response = await fetch(url, { headers, cache: "no-store" });
-    if (!res.ok) return { ok: false, status: res.status };
+    if (!res.ok) return { ok: false, status: res.status, detail: await bitbucketError(res) };
     const body = (await res.json()) as BitbucketPage<T>;
     const values = body.values ?? [];
     if (onPage(values) === false) return { ok: true };
