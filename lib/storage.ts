@@ -22,6 +22,7 @@ export const DEFAULT_SETTINGS: Settings = {
   bitbucketToken: "",
   bitbucketWorkspaces: "",
   bitbucketUser: "",
+  bitbucketAccountId: "",
   bitbucketEmails: "",
   scanAllBranches: false,
   selectedRepos: [],

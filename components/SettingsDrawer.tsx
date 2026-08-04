@@ -133,7 +133,9 @@ export function SettingsDrawer({
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Failed");
       onReposLoaded(data.repos as Repo[], "bitbucket", data.login as string);
-      if (!settings.bitbucketUser && data.login) patch({ bitbucketUser: data.login });
+      // Always refresh the account id — it's the filter key and the user can't
+      // reasonably type it themselves.
+      if (data.accountId) patch({ bitbucketAccountId: data.accountId as string });
       const warnings = (data.warnings as string[] | undefined) ?? [];
       notify(
         warnings.length ? "err" : "ok",
@@ -529,12 +531,12 @@ export function SettingsDrawer({
 
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <Label htmlFor="bbUser">Bitbucket username</Label>
+              <Label htmlFor="bbUser">Display name</Label>
               <Input
                 id="bbUser"
                 value={settings.bitbucketUser}
                 onChange={(e) => patch({ bitbucketUser: e.target.value.trim() })}
-                placeholder="octocat"
+                placeholder="Ada Lovelace"
               />
             </div>
             <div>
@@ -549,7 +551,10 @@ export function SettingsDrawer({
           </div>
           <p className="-mt-2 text-xs text-slate-500">
             Bitbucket&rsquo;s commits API has no author filter, so these are matched after fetching.
-            Leave both blank to pull every commit in the selected repos.
+            Your own commits are already recognised by account id once repos are loaded &mdash; these
+            two only widen that. Commits carry a <em>display name</em>, never a username, so
+            &ldquo;octocat&rdquo; will never match. Leave both blank to pull every commit in the
+            selected repos.
           </p>
 
           <div className="rounded-xl border border-white/8 bg-white/2 px-3 py-2">

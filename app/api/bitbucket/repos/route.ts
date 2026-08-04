@@ -24,7 +24,13 @@ type BbRepo = {
   mainbranch?: { name?: string } | null;
 };
 
-type BbUser = { username?: string; nickname?: string; display_name?: string };
+type BbUser = {
+  username?: string;
+  nickname?: string;
+  display_name?: string;
+  account_id?: string;
+  uuid?: string;
+};
 
 export async function POST(req: Request) {
   const { token, authEmail, workspaces } = (await req.json()) as {
@@ -44,11 +50,15 @@ export async function POST(req: Request) {
     // needs `read:account`, which a repo-only API token won't have. The reason
     // is kept so it can be reported if the repositories call fails too.
     let login = "";
+    // Commits identify their author by account id, never by username, so this
+    // is what makes author filtering work — see the commits route.
+    let accountId = "";
     let userIssue = "";
     const me = await fetch(`${BITBUCKET_API}/user`, { headers, cache: "no-store" });
     if (me.ok) {
       const user = (await me.json()) as BbUser;
       login = user.username || user.nickname || user.display_name || "";
+      accountId = user.account_id || user.uuid || "";
     } else {
       userIssue = `GET /user → ${me.status}: ${await bitbucketError(me)}`;
     }
@@ -119,7 +129,7 @@ export async function POST(req: Request) {
     }
 
     if (userIssue) warnings.push(userIssue);
-    return NextResponse.json({ login, repos, warnings });
+    return NextResponse.json({ login, accountId, repos, warnings });
   } catch (err) {
     return NextResponse.json({ error: (err as Error).message }, { status: 500 });
   }

@@ -39,9 +39,12 @@ written server-side. Tokens expire; paste the new one and carry on.
    (optionally across all branches), groups them per day per repo, and splits the day's hours
    between them. Author filtering differs per provider: GitHub filters server-side by
    username/email, while GitLab and Bitbucket have no author parameter, so their commits are
-   matched after fetching (GitLab by email; Bitbucket by email or username). Bitbucket also has no
-   `since`/`until` on its commits endpoint, so it pages from newest and stops once a whole page
-   predates the range. Bitbucket repo discovery is workspace-scoped:
+   matched after fetching (GitLab by email; Bitbucket by Atlassian account id, then commit email or
+   display name). Bitbucket commit authors carry no username — only a display name and an account
+   id — so the account id is captured when repos load and is what recognises your own commits.
+   Bitbucket also has no `since`/`until` on its commits endpoint, so it pages from newest and stops
+   once a whole page predates the range; a range older than 80 pages of history reports a warning
+   rather than quietly coming back short. Bitbucket repo discovery is workspace-scoped:
    [CHANGE-2770](https://developer.atlassian.com/cloud/bitbucket/changelog#CHANGE-2770) (April 2026)
    returned 410 for every cross-workspace listing endpoint, so workspaces come from
    `/user/workspaces` and repos from `/repositories/{workspace}` per workspace. **Pull** also checks `list_activities` for what's already logged on Emit for

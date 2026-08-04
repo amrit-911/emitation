@@ -47,23 +47,27 @@ export function authHint(status: number, usingBasic: boolean): string {
  * Bitbucket paginates with an opaque `next` URL rather than page numbers.
  * `onPage` returns false to stop early (used to bail once commits predate
  * the requested range).
+ *
+ * `exhausted` distinguishes "walked everything" from "hit the page cap with
+ * more to go" — the caller has to warn about the latter, because a truncated
+ * walk and a genuinely empty result look identical otherwise.
  */
 export async function paginate<T>(
   startUrl: string,
   headers: Record<string, string>,
   maxPages: number,
   onPage: (values: T[]) => boolean | void,
-): Promise<{ ok: true } | { ok: false; status: number; detail: string }> {
+): Promise<{ ok: true; exhausted: boolean } | { ok: false; status: number; detail: string }> {
   let url: string | undefined = startUrl;
   for (let page = 0; page < maxPages && url; page += 1) {
     const res: Response = await fetch(url, { headers, cache: "no-store" });
     if (!res.ok) return { ok: false, status: res.status, detail: await bitbucketError(res) };
     const body = (await res.json()) as BitbucketPage<T>;
     const values = body.values ?? [];
-    if (onPage(values) === false) return { ok: true };
+    if (onPage(values) === false) return { ok: true, exhausted: false };
     url = body.next;
   }
-  return { ok: true };
+  return { ok: true, exhausted: Boolean(url) };
 }
 
 /** Bounded-concurrency map, so a workspace with many repos can't fan out unbounded. */

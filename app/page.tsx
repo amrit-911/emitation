@@ -394,6 +394,7 @@ export default function Home() {
               untilISO: until.toISOString(),
               authorEmails,
               authorUsernames: [settings.bitbucketUser].filter(Boolean),
+              authorAccountIds: [settings.bitbucketAccountId].filter(Boolean),
               allBranches: settings.scanAllBranches,
             }),
           }).then((r) => r.json()),

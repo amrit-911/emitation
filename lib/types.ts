@@ -99,6 +99,12 @@ export type Settings = {
    */
   bitbucketWorkspaces: string;
   bitbucketUser: string;
+  /**
+   * Atlassian `account_id`, captured when repos load. Commit author objects
+   * carry this and a display name but no username, so it is the only reliable
+   * way to recognise your own commits.
+   */
+  bitbucketAccountId: string;
   /** Bitbucket's commits API has no author filter, only post-hoc email matching. */
   bitbucketEmails: string;
   scanAllBranches: boolean;

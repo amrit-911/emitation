@@ -14,7 +14,13 @@ export const runtime = "nodejs";
 export const maxDuration = 120;
 
 const CONCURRENCY = 4;
-const MAX_PAGES = 10;
+/**
+ * There is no `since` on Bitbucket's commits endpoint, so reaching an older
+ * range means walking back to it a page at a time — 10 pages only covered a
+ * couple of months on an active repo, which silently returned nothing. The
+ * whole-page-predates check below still stops recent ranges after a page or two.
+ */
+const MAX_PAGES = 80;
 
 type BbCommit = {
   hash: string;
@@ -22,7 +28,17 @@ type BbCommit = {
   message: string;
   author?: {
     raw?: string;
-    user?: { username?: string; nickname?: string; display_name?: string };
+    /**
+     * No `username` here — Bitbucket dropped it from commit user objects, so
+     * `nickname` holds the display name and `account_id`/`uuid` are the only
+     * stable identifiers.
+     */
+    user?: {
+      nickname?: string;
+      display_name?: string;
+      account_id?: string;
+      uuid?: string;
+    };
   };
   links?: { html?: { href?: string } };
 };
@@ -36,6 +52,8 @@ type Body = {
   /** Bitbucket has no author query param — matched post-hoc. */
   authorEmails?: string[];
   authorUsernames?: string[];
+  /** `account_id`/`uuid` from /2.0/user — the only identifiers commits carry. */
+  authorAccountIds?: string[];
   allBranches?: boolean;
 };
 
@@ -48,29 +66,46 @@ export async function POST(req: Request) {
     untilISO,
     authorEmails = [],
     authorUsernames = [],
+    authorAccountIds = [],
     allBranches,
   } = (await req.json()) as Body;
 
   if (!token) return NextResponse.json({ error: "Bitbucket token is required" }, { status: 400 });
   if (!repos.length) return NextResponse.json({ error: "Pick at least one repo" }, { status: 400 });
 
+  const norm = (v: string) => v.trim().toLowerCase();
   const headers = bitbucketHeaders(token, authEmail);
-  const emailSet = new Set(authorEmails.map((e) => e.toLowerCase()).filter(Boolean));
-  const userSet = new Set(authorUsernames.map((u) => u.toLowerCase()).filter(Boolean));
-  const filtering = emailSet.size > 0 || userSet.size > 0;
+  const emailSet = new Set(authorEmails.map(norm).filter(Boolean));
+  const userSet = new Set(authorUsernames.map(norm).filter(Boolean));
+  // `{uuid}` braces come and go depending on the endpoint, so compare bare.
+  const idSet = new Set(authorAccountIds.map((v) => norm(v).replace(/[{}]/g, "")).filter(Boolean));
+  const filtering = emailSet.size > 0 || userSet.size > 0 || idSet.size > 0;
 
   const sinceMs = sinceISO ? Date.parse(sinceISO) : Number.NEGATIVE_INFINITY;
   const untilMs = untilISO ? Date.parse(untilISO) : Number.POSITIVE_INFINITY;
   const warnings: string[] = [];
+  // Tracked so "your filter matched nothing" can be told apart from "the range
+  // is empty" — the two are indistinguishable in the response otherwise.
+  let inRange = 0;
 
   function isMine(c: BbCommit): boolean {
     if (!filtering) return true;
+    const u = c.author?.user;
+    if (
+      [u?.account_id, u?.uuid]
+        .filter(Boolean)
+        .some((v) => idSet.has(norm(v!).replace(/[{}]/g, "")))
+    ) {
+      return true;
+    }
     const email = emailFromRaw(c.author?.raw)?.toLowerCase();
     if (email && emailSet.has(email)) return true;
-    const u = c.author?.user;
-    return [u?.username, u?.nickname, u?.display_name]
+    // `raw` is `Name <email>`; the name is often the git author, which may differ
+    // from the Bitbucket display name.
+    const rawName = c.author?.raw?.replace(/\s*<[^>]*>\s*$/, "");
+    return [u?.nickname, u?.display_name, rawName]
       .filter(Boolean)
-      .some((n) => userSet.has(n!.toLowerCase()));
+      .some((n) => userSet.has(norm(n!)));
   }
 
   async function pull(repo: { fullName: string; defaultBranch?: string }): Promise<Commit[]> {
@@ -87,6 +122,7 @@ export async function POST(req: Request) {
       for (const c of values) {
         const ms = Date.parse(c.date);
         if (ms < sinceMs || ms > untilMs) continue;
+        inRange += 1;
         if (!isMine(c)) continue;
         out.push({
           sha: c.hash,
@@ -96,7 +132,7 @@ export async function POST(req: Request) {
           message: c.message.split("\n")[0].trim(),
           date: new Date(c.date).toISOString(),
           url: c.links?.html?.href ?? `https://bitbucket.org/${repo.fullName}/commits/${c.hash}`,
-          authorLogin: c.author?.user?.nickname ?? c.author?.user?.username ?? null,
+          authorLogin: c.author?.user?.nickname ?? c.author?.user?.display_name ?? null,
           authorEmail: emailFromRaw(c.author?.raw),
         });
       }
@@ -113,6 +149,11 @@ export async function POST(req: Request) {
         authHint(result.status, Boolean(authEmail?.trim())),
       ].filter(Boolean);
       warnings.push(parts.join(" — "));
+    } else if (result.ok && result.exhausted) {
+      warnings.push(
+        `${repo.fullName}: stopped after ${MAX_PAGES} pages without reaching the start of the ` +
+          `range, so older commits are missing. Narrow the range or pick a later start date.`,
+      );
     }
     return out;
   }
@@ -120,6 +161,15 @@ export async function POST(req: Request) {
   try {
     const perRepo = await mapLimit(repos, CONCURRENCY, pull);
     const commits = perRepo.flat().sort((a, b) => a.date.localeCompare(b.date));
+
+    if (filtering && !commits.length && inRange > 0) {
+      warnings.push(
+        `${inRange} commits are in range but none match the author filter. Bitbucket commits carry ` +
+          `a display name and account id, never a username — clear the username field or add your ` +
+          `commit email.`,
+      );
+    }
+
     return NextResponse.json({ commits, warnings });
   } catch (err) {
     return NextResponse.json({ error: (err as Error).message }, { status: 500 });
