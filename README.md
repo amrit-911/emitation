@@ -22,7 +22,7 @@ Open http://localhost:3000 and fill in **Connections**:
 | Auto-fetch URL | Optional. The profile request URL, so you can refresh it with one click later |
 | GitHub PAT | Classic token with `repo`, or fine-grained with Contents + Metadata read |
 | GitLab PAT | User Settings → Access Tokens, scope `read_api`. Works against gitlab.com or a self-hosted instance URL |
-| Bitbucket | Atlassian account email + an API token from id.atlassian.com → Security → API tokens (`read:repository:bitbucket`, `read:account`). Leave the email blank only for a workspace/repo *access token*, which authenticates as a Bearer on its own |
+| Bitbucket | Atlassian account email + a **scoped** API token from id.atlassian.com → Security → *Create API token with scopes* (`read:repository:bitbucket`, `read:workspace:bitbucket`, `read:account`). A plain unscoped API token is rejected. Leave the email blank only for a workspace/repo *access token*, which authenticates as a Bearer on its own — those can't enumerate workspaces, so name them in the Workspaces field |
 
 Everything is stored in this browser's `localStorage` under `emitation.settings.v1` — nothing is
 written server-side. Tokens expire; paste the new one and carry on.
@@ -41,7 +41,10 @@ written server-side. Tokens expire; paste the new one and carry on.
    username/email, while GitLab and Bitbucket have no author parameter, so their commits are
    matched after fetching (GitLab by email; Bitbucket by email or username). Bitbucket also has no
    `since`/`until` on its commits endpoint, so it pages from newest and stops once a whole page
-   predates the range. **Pull** also checks `list_activities` for what's already logged on Emit for
+   predates the range. Bitbucket repo discovery is workspace-scoped:
+   [CHANGE-2770](https://developer.atlassian.com/cloud/bitbucket/changelog#CHANGE-2770) (April 2026)
+   returned 410 for every cross-workspace listing endpoint, so workspaces come from
+   `/user/workspaces` and repos from `/repositories/{workspace}` per workspace. **Pull** also checks `list_activities` for what's already logged on Emit for
    each day in range — a green badge shows the logged total, and both the commit split and the AI
    filler only size new entries to the remaining hours. A day that already meets the target shows
    as **already filled** and is skipped by both fillers (the wand disables itself). Use **Check

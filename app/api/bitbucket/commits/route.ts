@@ -4,6 +4,7 @@ import {
   authHint,
   bitbucketHeaders,
   emailFromRaw,
+  mapLimit,
   paginate,
   splitFullName,
 } from "@/lib/bitbucket";
@@ -37,20 +38,6 @@ type Body = {
   authorUsernames?: string[];
   allBranches?: boolean;
 };
-
-async function mapLimit<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
-  const out: R[] = new Array(items.length);
-  let cursor = 0;
-  const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
-    while (cursor < items.length) {
-      const idx = cursor;
-      cursor += 1;
-      out[idx] = await fn(items[idx]);
-    }
-  });
-  await Promise.all(workers);
-  return out;
-}
 
 export async function POST(req: Request) {
   const {

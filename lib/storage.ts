@@ -20,6 +20,7 @@ export const DEFAULT_SETTINGS: Settings = {
   gitlabEmails: "",
   bitbucketAuthEmail: "",
   bitbucketToken: "",
+  bitbucketWorkspaces: "",
   bitbucketUser: "",
   bitbucketEmails: "",
   scanAllBranches: false,

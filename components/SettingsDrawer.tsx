@@ -127,15 +127,18 @@ export function SettingsDrawer({
         body: JSON.stringify({
           token: settings.bitbucketToken,
           authEmail: settings.bitbucketAuthEmail,
+          workspaces: settings.bitbucketWorkspaces,
         }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Failed");
       onReposLoaded(data.repos as Repo[], "bitbucket", data.login as string);
       if (!settings.bitbucketUser && data.login) patch({ bitbucketUser: data.login });
+      const warnings = (data.warnings as string[] | undefined) ?? [];
       notify(
-        "ok",
-        `Loaded ${data.repos.length} Bitbucket repos${data.login ? ` for @${data.login}` : ""}`,
+        warnings.length ? "err" : "ok",
+        `Loaded ${data.repos.length} Bitbucket repos${data.login ? ` for @${data.login}` : ""}` +
+          (warnings.length ? ` — ${warnings.join(" | ")}` : ""),
       );
     } catch (err) {
       notify("err", `Bitbucket: ${(err as Error).message}`);
@@ -500,8 +503,27 @@ export function SettingsDrawer({
               </Button>
             </div>
             <p className="mt-1.5 text-xs text-slate-500">
-              id.atlassian.com &rarr; Security &rarr; API tokens, with the{" "}
-              <code>read:repository:bitbucket</code> and <code>read:account</code> scopes.
+              id.atlassian.com &rarr; Security &rarr; <strong>Create API token with scopes</strong>{" "}
+              (a plain token without scopes is rejected), picking{" "}
+              <code>read:repository:bitbucket</code>, <code>read:workspace:bitbucket</code> and{" "}
+              <code>read:account</code>.
+            </p>
+          </div>
+
+          <div>
+            <Label htmlFor="bbWorkspaces">Workspaces (optional)</Label>
+            <Input
+              id="bbWorkspaces"
+              spellCheck={false}
+              value={settings.bitbucketWorkspaces}
+              onChange={(e) => patch({ bitbucketWorkspaces: e.target.value })}
+              placeholder="my-workspace, other-workspace"
+              className="font-mono text-[11px]"
+            />
+            <p className="mt-1.5 text-xs text-slate-500">
+              Left blank, workspaces are discovered automatically. Access tokens can&rsquo;t
+              enumerate them, so name them here &mdash; the slug is the first path segment of a repo
+              URL, <code>bitbucket.org/<strong>workspace</strong>/repo</code>.
             </p>
           </div>
 

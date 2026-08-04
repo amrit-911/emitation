@@ -66,6 +66,51 @@ export async function paginate<T>(
   return { ok: true };
 }
 
+/** Bounded-concurrency map, so a workspace with many repos can't fan out unbounded. */
+export async function mapLimit<T, R>(
+  items: T[],
+  limit: number,
+  fn: (item: T) => Promise<R>,
+): Promise<R[]> {
+  const out: R[] = new Array(items.length);
+  let cursor = 0;
+  const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (cursor < items.length) {
+      const idx = cursor;
+      cursor += 1;
+      out[idx] = await fn(items[idx]);
+    }
+  });
+  await Promise.all(workers);
+  return out;
+}
+
+type WorkspaceAccess = { workspace?: { slug?: string } };
+
+/**
+ * Repository discovery is workspace-scoped since CHANGE-2770 (April 2026) removed
+ * every cross-workspace listing endpoint — `/repositories?role=member`,
+ * `/workspaces` and `/user/permissions/workspaces` all return 410 now. The
+ * surviving discovery route is `/user/workspaces`, which only works for
+ * account-level credentials; workspace and repository access tokens have to be
+ * told their workspace explicitly.
+ */
+export async function listWorkspaces(
+  headers: Record<string, string>,
+  maxPages: number,
+): Promise<{ ok: true; slugs: string[] } | { ok: false; status: number; detail: string }> {
+  const slugs: string[] = [];
+  const result = await paginate<WorkspaceAccess>(
+    `${BITBUCKET_API}/user/workspaces?pagelen=100`,
+    headers,
+    maxPages,
+    (values) => {
+      for (const v of values) if (v.workspace?.slug) slugs.push(v.workspace.slug);
+    },
+  );
+  return result.ok ? { ok: true, slugs } : result;
+}
+
 /** `workspace/repo_slug` — neither part can contain a slash, so this is exact. */
 export function splitFullName(fullName: string): { workspace: string; slug: string } {
   const idx = fullName.indexOf("/");

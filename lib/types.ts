@@ -93,6 +93,11 @@ export type Settings = {
   bitbucketAuthEmail: string;
   /** Atlassian API token, or a workspace/repo access token (used as Bearer if no email). */
   bitbucketToken: string;
+  /**
+   * Optional workspace slugs. Discovery via /user/workspaces covers account
+   * credentials; access tokens can't enumerate, so they need these spelled out.
+   */
+  bitbucketWorkspaces: string;
   bitbucketUser: string;
   /** Bitbucket's commits API has no author filter, only post-hoc email matching. */
   bitbucketEmails: string;
