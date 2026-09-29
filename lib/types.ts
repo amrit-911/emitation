@@ -115,6 +115,12 @@ export type Settings = {
   fallbackProject: string;
   fallbackActivity: string;
   aiPrompt: string;
+  /**
+   * Free-form instructions for the custom run — unlike the gap filler it sees
+   * every commit with its authored date and decides per day how to split bursts,
+   * summarise, tag, @mention or skip.
+   */
+  customPrompt: string;
   /** Rewrite terse commit messages ("fix", "wip") into a real sentence via AI. */
   aiSummarizeCommits: boolean;
   /** When a commit day is preceded by empty gap days, spread its commits back across them. */
@@ -124,7 +130,7 @@ export type Settings = {
 };
 
 export type EntryStatus = "idle" | "queued" | "sending" | "done" | "error";
-export type EntrySource = "commits" | "ai" | "manual";
+export type EntrySource = "commits" | "ai" | "custom" | "manual";
 
 export type Entry = {
   id: string;
@@ -134,6 +140,8 @@ export type Entry = {
   project: string;
   activity: string;
   hours: number;
+  /** Emit member handles (`@name`), written inline and sent as `mentions`. */
+  mentions?: string[];
   source: EntrySource;
   commitShas: string[];
   status: EntryStatus;

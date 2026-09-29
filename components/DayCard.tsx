@@ -13,7 +13,13 @@ import {
   Wand2,
 } from "lucide-react";
 import { Badge, Button, Input, TagPicker, Textarea, cx } from "./ui";
-import { composeDescription, isDayCovered, remainingHours, validateEntry } from "@/lib/emit";
+import {
+  composeDescription,
+  isDayCovered,
+  parseMentions,
+  remainingHours,
+  validateEntry,
+} from "@/lib/emit";
 import { formatHours, prettyDate, toKey, weekdayShort } from "@/lib/dates";
 import type { Day, Entry } from "@/lib/types";
 
@@ -234,6 +240,15 @@ export function DayCard({
                     placeholder="what you worked on…"
                     className="text-sm"
                   />
+                  <Input
+                    // Parsed on blur, so a half-typed "@" isn't eaten mid-keystroke.
+                    key={(entry.mentions ?? []).join(" ")}
+                    defaultValue={(entry.mentions ?? []).join(" ")}
+                    disabled={entry.status === "done"}
+                    onBlur={(e) => onEntryChange(entry.id, { mentions: parseMentions(e.target.value) })}
+                    placeholder="@mentions (optional)"
+                    className="mt-1.5 h-7 py-0 text-xs"
+                  />
                 </div>
 
                 <div className="flex shrink-0 flex-wrap items-start gap-2 lg:w-[26rem]">
@@ -287,6 +302,7 @@ export function DayCard({
                 </p>
                 {entry.source === "ai" && <Badge tone="brand">ai</Badge>}
                 {entry.source === "commits" && <Badge tone="cyan">commits</Badge>}
+                {entry.source === "custom" && <Badge tone="amber">custom</Badge>}
               </div>
 
               {errors.length > 0 && entry.status !== "done" && (

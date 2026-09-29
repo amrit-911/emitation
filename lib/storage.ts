@@ -34,6 +34,7 @@ export const DEFAULT_SETTINGS: Settings = {
   aiPrompt:
     "Write like a senior full-stack engineer logging their day: concrete, specific, no fluff. " +
     "One short sentence per entry, lowercase start, no hashtags in the text itself.",
+  customPrompt: "",
   aiSummarizeCommits: true,
   spreadCommits: true,
   spreadMaxDays: 3,

@@ -62,7 +62,15 @@ written server-side. Tokens expire; paste the new one and carry on.
      Project/activity tags are never touched by this; they stay whatever your repo mapping says.
 4. **Gap filler** — days with no commits get written by Gemini from your prompt; each day also has
    its own nudge field, and the wand icon regenerates a single day.
-5. **Push** — every entry is validated against the team rules (min words, min unique tags, one
+5. **Custom prompt** — an all-rounder, separate from the gap filler. Write free-form instructions
+   and pick a window (defaults to the whole timeline); Gemini sees every pulled commit at its real
+   authored date (not the spread), what's already on Emit, and every team tag, then decides per
+   day how bursts map to days, how commits get summarised, which tags to use, who to `@mention`,
+   how hours split, and which days to skip (leave, holidays — those get switched off). Days it
+   doesn't return are left alone, and already-pushed entries are never replaced. Mentions are
+   written into the description and sent in `mentions`, and each entry has an editable
+   `@mentions` field.
+6. **Push** — every entry is validated against the team rules (min words, min unique tags, one
    project tag, one activity tag) before anything is sent. Only newly-built entries are ever pushed
    — what's already on Emit is never re-sent. Turn on **Dry run** to build and validate the
    payloads without hitting Emit.

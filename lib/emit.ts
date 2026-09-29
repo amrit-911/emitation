@@ -29,9 +29,23 @@ export function categoryTags(profile: EmitProfile | undefined, name: string): st
 export const projectTags = (p?: EmitProfile) => categoryTags(p, "Projects");
 export const activityTags = (p?: EmitProfile) => categoryTags(p, "Activity");
 
-/** The string Emit actually stores: free text with both tags inline. */
-export function composeDescription(entry: Pick<Entry, "text" | "project" | "activity">): string {
-  return [entry.text.trim(), entry.project, entry.activity].filter(Boolean).join(" ").trim();
+/** The string Emit actually stores: free text with mentions and both tags inline. */
+export function composeDescription(
+  entry: Pick<Entry, "text" | "project" | "activity" | "mentions">,
+): string {
+  return [entry.text.trim(), ...(entry.mentions ?? []), entry.project, entry.activity]
+    .filter(Boolean)
+    .join(" ")
+    .trim();
+}
+
+/** "@a, b @c" → ["@a", "@b", "@c"], deduped. */
+export function parseMentions(raw: string): string[] {
+  const handles = raw
+    .split(/[\s,]+/)
+    .map((m) => m.replace(/^@+/, "").replace(/[^\w.-]/g, ""))
+    .filter(Boolean);
+  return Array.from(new Set(handles.map((h) => `@${h}`)));
 }
 
 export function extractTags(description: string): string[] {

@@ -8,6 +8,7 @@ import {
   CloudUpload,
   GitCommitHorizontal,
   Layers,
+  MessageSquareText,
   RefreshCw,
   Settings2,
   Sparkles,
@@ -74,7 +75,13 @@ export default function Home() {
   const [days, setDays] = useState<Day[]>([]);
   const [dryRun, setDryRun] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [busy, setBusy] = useState<null | "commits" | "existing" | "ai" | "push">(null);
+  const [busy, setBusy] = useState<null | "commits" | "existing" | "ai" | "custom" | "push">(
+    null,
+  );
+  /** Every commit from the last pull, at its authored date — before any spreading. */
+  const [pulledCommits, setPulledCommits] = useState<Commit[]>([]);
+  /** Blank means "the whole timeline". */
+  const [customRange, setCustomRange] = useState({ from: "", to: "" });
   const [progress, setProgress] = useState({ done: 0, total: 0 });
   const [toasts, setToasts] = useState<Toast[]>([]);
   const toastId = useRef(0);
@@ -446,6 +453,7 @@ export default function Home() {
         }
       }
 
+      setPulledCommits(commits);
       buildTimeline({ commitsByDate, existing, textOverrides });
       results.flatMap((r) => r.warnings ?? []).slice(0, 3).forEach((w) => notify("info", w));
       notify("ok", `${commits.length} commits pulled from ${selected.length} repos`);
@@ -535,6 +543,120 @@ export default function Home() {
     }
   }
 
+  /**
+   * The all-rounder: hands the model the custom prompt, every day in the window
+   * and the raw commit pool (authored dates, not spread), and lets it decide
+   * how bursts map to days, how to summarise, which tags and @mentions to use,
+   * and which days to skip. Days it doesn't return are left alone.
+   */
+  async function runCustom() {
+    if (!settings.customPrompt.trim()) return notify("err", "Write a custom prompt first");
+    const from = customRange.from || range.from;
+    const to = customRange.to || range.to;
+    if (from > to) return notify("err", "Custom window starts after it ends");
+
+    const targets = days.filter((d) => d.enabled && d.date >= from && d.date <= to);
+    if (!targets.length) return notify("info", "No enabled days in that window");
+
+    // A burst just past the window can still belong to days inside it.
+    const tail = fromKey(to);
+    tail.setDate(tail.getDate() + (settings.spreadCommits ? settings.spreadMaxDays : 0));
+    const poolEnd = toKey(tail);
+    const pool = pulledCommits
+      .map((c) => ({ c, key: toKey(new Date(c.date)) }))
+      .filter(({ key }) => key >= from && key <= poolEnd)
+      .sort((a, b) => a.c.date.localeCompare(b.c.date));
+
+    setBusy("custom");
+    try {
+      const res = await fetch("/api/ai/custom", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          prompt: settings.customPrompt,
+          projects,
+          activities,
+          fallbackProject: settings.fallbackProject || projects[0],
+          fallbackActivity: settings.fallbackActivity || activities[0],
+          selfMention: profile?.activeMember?.mention,
+          spread: { enabled: settings.spreadCommits, maxDays: settings.spreadMaxDays },
+          days: targets.map((d) => ({
+            date: d.date,
+            weekday: weekdayShort(d.date),
+            targetHours: remainingHours(d, settings.hoursPerDay),
+            alreadyLogged: d.existingEntries.map((e) => `${formatHours(e.hours)} ${e.description}`),
+            hint: d.hint,
+          })),
+          commits: pool.map(({ c, key }) => ({
+            date: key,
+            time: new Date(c.date).toTimeString().slice(0, 5),
+            repo: c.repo,
+            project: settings.repoMap[c.repoId]?.project,
+            activity: settings.repoMap[c.repoId]?.activity,
+            message: c.message,
+          })),
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Custom run failed");
+
+      type Generated = {
+        text: string;
+        project: string;
+        activity: string;
+        hours: number;
+        mentions: string[];
+      };
+      const result = new Map(
+        (data.days as { date: string; skip: boolean; entries: Generated[] }[]).map((d) => [
+          d.date,
+          d,
+        ]),
+      );
+
+      setDays((prev) =>
+        prev.map((d) => {
+          const gen = result.get(d.date);
+          if (!gen) return d;
+          // Anything already pushed stays; only unsent entries are replaced.
+          const kept = d.entries.filter((e) => e.status === "done");
+          if (gen.skip) return { ...d, enabled: false, entries: kept };
+          return {
+            ...d,
+            entries: [
+              ...kept,
+              ...gen.entries.map((g) => ({
+                id: uid(),
+                date: d.date,
+                text: g.text,
+                project: g.project,
+                activity: g.activity,
+                hours: g.hours,
+                mentions: g.mentions,
+                source: "custom" as const,
+                commitShas: d.commits.map((c) => c.sha),
+                status: "idle" as const,
+              })),
+            ],
+          };
+        }),
+      );
+
+      const skipped = Array.from(result.values()).filter((d) => d.skip).length;
+      const filled = result.size - skipped;
+      notify(
+        "ok",
+        `Custom prompt wrote ${filled} day${filled === 1 ? "" : "s"}` +
+          (skipped ? `, skipped ${skipped}` : ""),
+      );
+      if (data.truncated) notify("info", "Too many commits — only the first 400 were sent");
+    } catch (err) {
+      notify("err", `Custom: ${(err as Error).message}`);
+    } finally {
+      setBusy(null);
+    }
+  }
+
   /* ---------------------------------------------------------------- push */
 
   const pushable = useMemo(
@@ -586,7 +708,7 @@ export default function Home() {
             hours: entry.hours,
             description: composeDescription(entry),
             tags: [entry.project, entry.activity].filter(Boolean),
-            mentions: [],
+            mentions: entry.mentions ?? [],
             dryRun,
           }),
         });
@@ -890,6 +1012,71 @@ export default function Home() {
               <Button onClick={() => generate("all")} disabled={busy !== null || !days.length}>
                 Rewrite all
               </Button>
+            </div>
+          </Card>
+
+          <Card className="p-4">
+            <SectionTitle
+              icon={<MessageSquareText className="size-4" />}
+              title="Custom prompt"
+              hint="Steer everything: bursts, summaries, tags, @mentions, skipped days"
+            />
+            <Textarea
+              rows={6}
+              className="mt-3 text-xs"
+              value={settings.customPrompt}
+              onChange={(e) => patch({ customPrompt: e.target.value })}
+              placeholder={[
+                "e.g.",
+                "- the 18th's commit burst covers the 15th–18th, split it evenly",
+                "- summarise by feature, not by repo",
+                "- Mondays: 1h #Meeting sprint planning, tag @priya",
+                "- 22nd–23rd I was on leave, skip them",
+                "- 24th: client demo prep, 4h only",
+              ].join("\n")}
+            />
+            <div className="mt-2 grid grid-cols-2 gap-2">
+              <div>
+                <Label htmlFor="customFrom">Apply from</Label>
+                <Input
+                  id="customFrom"
+                  type="date"
+                  value={customRange.from || range.from}
+                  min={range.from}
+                  max={range.to}
+                  onChange={(e) => setCustomRange((r) => ({ ...r, from: e.target.value }))}
+                />
+              </div>
+              <div>
+                <Label htmlFor="customTo">to</Label>
+                <Input
+                  id="customTo"
+                  type="date"
+                  value={customRange.to || range.to}
+                  min={range.from}
+                  max={range.to}
+                  onChange={(e) => setCustomRange((r) => ({ ...r, to: e.target.value }))}
+                />
+              </div>
+            </div>
+            <p className="mt-2 text-[11px] leading-relaxed text-slate-500">
+              Sees every pulled commit at its real date ({pulledCommits.length} now), what&apos;s
+              already on Emit, and all team tags. Only the days it returns are rewritten; days it
+              skips get switched off. Pushed entries are never touched.
+            </p>
+            <div className="mt-2 flex gap-2">
+              <Button
+                className="flex-1"
+                variant="primary"
+                onClick={runCustom}
+                loading={busy === "custom"}
+                disabled={busy !== null || !days.length || !settings.customPrompt.trim()}
+              >
+                <Wand2 className="size-3.5" /> Run custom prompt
+              </Button>
+              {(customRange.from || customRange.to) && (
+                <Button onClick={() => setCustomRange({ from: "", to: "" })}>Whole range</Button>
+              )}
             </div>
           </Card>
         </div>
