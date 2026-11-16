@@ -704,18 +704,16 @@ export default function Home() {
 
   return (
     <MotionConfig reducedMotion={settings.reduceMotion ? "always" : "user"}>
-      {!tour && (
-        <TopBar
-          aiOn={aiOn}
-          role={settings.role}
-          ready={ready}
-          team={profile?.activeTeam?.name}
-          repos={selectedRepos}
-          codeFirst={role.codeFirst}
-          onOpen={openCenter}
-          onHome={() => (hasResults ? undefined : composer.current?.focus())}
-        />
-      )}
+      <TopBar
+        aiOn={aiOn}
+        role={settings.role}
+        ready={ready}
+        team={profile?.activeTeam?.name}
+        repos={selectedRepos}
+        codeFirst={role.codeFirst}
+        onOpen={openCenter}
+        onHome={() => (hasResults ? undefined : composer.current?.focus())}
+      />
       <Island state={island} onStop={busy === "run" || busy === "day" ? stop : undefined} />
 
       {restored && (
@@ -723,7 +721,6 @@ export default function Home() {
           className={cx(
             "mx-auto flex w-full max-w-[920px] flex-1 flex-col px-4 transition-[padding] duration-700 ease-apple sm:px-6",
             hasResults ? "pb-40 pt-[84px]" : "pb-24 pt-[14vh]",
-            tour && "invisible",
           )}
         >
           <AnimatePresence mode="popLayout">
@@ -945,7 +942,6 @@ export default function Home() {
       <AnimatePresence>
         {tour && (
           <Onboarding
-            instant={tourOpen === null}
             role={settings.role}
             onRole={(r) => patch({ role: r })}
             onDone={() => {

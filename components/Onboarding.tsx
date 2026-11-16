@@ -26,9 +26,10 @@ import {
   KeyRound,
   RotateCcw,
   ShieldCheck,
+  X,
 } from "lucide-react";
 import { BlurText, CheckDraw, RevealLine, Ring } from "./fx";
-import { BitbucketMark, Button, GithubMark, GitlabMark, Orb, Wordmark, cx, spring } from "./ui";
+import { BitbucketMark, Button, GithubMark, GitlabMark, Orb, cx, spring } from "./ui";
 import { ROLE_LIST, roleOf } from "@/lib/roles";
 import type { Role } from "@/lib/types";
 
@@ -102,98 +103,103 @@ export function Onboarding({
   const r = roleOf(role);
 
   return (
-    <motion.div
-      className="fixed inset-0 z-[100] flex flex-col overflow-y-auto"
-      initial={instant ? false : { opacity: 0 }}
-      animate={{ opacity: 1 }}
-      exit={{ opacity: 0, scale: 1.02 }}
-      transition={{ duration: 0.6, ease: [0.32, 0.72, 0, 1] }}
-    >
-      <div className="fixed inset-0 bg-[radial-gradient(120%_90%_at_50%_0%,rgba(4,5,10,0.25),rgba(4,5,10,0.7))]" />
-
-      <div className="relative flex items-center justify-between px-6 pt-5">
-        <AnimatePresence>
-          {scene !== "welcome" && (
-            <motion.span initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}>
-              <Wordmark className="text-[19px]" />
-            </motion.span>
-          )}
-        </AnimatePresence>
-        {i < SCENES.length - 1 && (
-          <Button variant="ghost" size="sm" onClick={onDone} className="ml-auto">
-            Skip
+    <div className="fixed inset-0 z-[100] flex items-center justify-center p-3 sm:p-6" role="dialog" aria-modal aria-label="Quick tour">
+      {/* the page stays visible behind, dimmed */}
+      <motion.div
+        className="absolute inset-0 bg-black/55"
+        initial={instant ? false : { opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0 }}
+        transition={{ duration: 0.35 }}
+        onClick={onDone}
+      />
+      <motion.div
+        initial={{ opacity: 0, scale: 0.94, y: 24 }}
+        animate={{ opacity: 1, scale: 1, y: 0 }}
+        exit={{ opacity: 0, scale: 0.96, y: 12, transition: { duration: 0.2 } }}
+        transition={spring.smooth}
+        className="glass-strong rim relative flex max-h-[min(92vh,760px)] w-full max-w-[880px] flex-col overflow-hidden rounded-[32px]"
+      >
+        <div className="flex items-center justify-between px-6 pt-5">
+          <span className="text-[11px] font-semibold uppercase tracking-[0.16em] text-label-4">
+            Quick tour · {i + 1}/{SCENES.length}
+          </span>
+          <Button variant="ghost" size="icon-sm" onClick={onDone} aria-label="Close tour" title="Close">
+            <X className="size-4" />
           </Button>
-        )}
-      </div>
-
-      <div className="relative flex flex-1 items-center justify-center px-6 py-10">
-        <AnimatePresence mode="wait" custom={dir}>
-          <motion.div
-            key={scene}
-            custom={dir}
-            variants={{
-              enter: (d: number) => ({ opacity: 0, x: d * 60, scale: 0.98 }),
-              center: { opacity: 1, x: 0, scale: 1 },
-              exit: (d: number) => ({ opacity: 0, x: d * -60, scale: 0.98 }),
-            }}
-            initial="enter"
-            animate="center"
-            exit="exit"
-            transition={spring.smooth}
-            className="w-full max-w-4xl"
-          >
-            {scene === "welcome" && <Welcome />}
-            {scene === "role" && <RolePick role={role} onRole={onRole} />}
-            {scene === "ask" && <AskDemo role={role ?? "developer"} />}
-            {scene === "context" && <ContextDemo role={role ?? "developer"} />}
-            {scene === "push" && <PushDemo role={role ?? "developer"} />}
-            {scene === "ready" && (
-              <Ready
-                codeFirst={r.codeFirst}
-                label={r.label}
-                onConnect={() => {
-                  onDone();
-                  onConnect();
-                }}
-                onStart={onDone}
-              />
-            )}
-          </motion.div>
-        </AnimatePresence>
-      </div>
-
-      <div className="relative flex items-center justify-between gap-4 px-6 pb-7">
-        <Button variant="ghost" onClick={() => go(i - 1)} disabled={i === 0} className="w-28 justify-start">
-          <ArrowLeft className="size-4" /> Back
-        </Button>
-
-        <div className="flex items-center gap-1.5">
-          {SCENES.map((s, k) => (
-            <button
-              key={s}
-              type="button"
-              aria-label={`Step ${k + 1}`}
-              onClick={() => go(k)}
-              className="group grid h-4 place-items-center"
-            >
-              <motion.span
-                animate={{ width: k === i ? 24 : 6, opacity: k === i ? 1 : k < i ? 0.55 : 0.25 }}
-                transition={spring.snappy}
-                className="block h-1.5 rounded-full bg-white"
-              />
-            </button>
-          ))}
         </div>
 
-        {i < SCENES.length - 1 ? (
-          <Button variant="primary" onClick={() => go(i + 1)} disabled={!canNext} className="w-28">
-            {scene === "welcome" ? "Get started" : "Next"} <ArrowRight className="size-4" />
+        <div className="relative flex min-h-0 flex-1 items-center justify-center overflow-y-auto overflow-x-hidden px-5 py-6 sm:px-10">
+          <AnimatePresence mode="wait" custom={dir}>
+            <motion.div
+              key={scene}
+              custom={dir}
+              variants={{
+                enter: (d: number) => ({ opacity: 0, x: d * 50 }),
+                center: { opacity: 1, x: 0 },
+                exit: (d: number) => ({ opacity: 0, x: d * -50 }),
+              }}
+              initial="enter"
+              animate="center"
+              exit="exit"
+              transition={spring.smooth}
+              className="w-full"
+            >
+              {scene === "welcome" && <Welcome />}
+              {scene === "role" && <RolePick role={role} onRole={onRole} />}
+              {scene === "ask" && <AskDemo role={role ?? "developer"} />}
+              {scene === "context" && <ContextDemo role={role ?? "developer"} />}
+              {scene === "push" && <PushDemo role={role ?? "developer"} />}
+              {scene === "ready" && (
+                <Ready
+                  codeFirst={r.codeFirst}
+                  label={r.label}
+                  onConnect={() => {
+                    onDone();
+                    onConnect();
+                  }}
+                  onStart={onDone}
+                />
+              )}
+            </motion.div>
+          </AnimatePresence>
+        </div>
+
+        <div className="flex items-center justify-between gap-4 border-t border-white/[0.07] px-5 py-4">
+          <Button variant="ghost" onClick={() => go(i - 1)} disabled={i === 0} className="w-28 justify-start">
+            <ArrowLeft className="size-4" /> Back
           </Button>
-        ) : (
-          <div className="w-28" />
-        )}
-      </div>
-    </motion.div>
+
+          <div className="flex items-center gap-1.5">
+            {SCENES.map((s, k) => (
+              <button
+                key={s}
+                type="button"
+                aria-label={`Step ${k + 1}`}
+                onClick={() => go(k)}
+                className="group grid h-4 place-items-center"
+              >
+                <motion.span
+                  animate={{ width: k === i ? 24 : 6, opacity: k === i ? 1 : k < i ? 0.55 : 0.25 }}
+                  transition={spring.snappy}
+                  className="block h-1.5 rounded-full bg-white"
+                />
+              </button>
+            ))}
+          </div>
+
+          {i < SCENES.length - 1 ? (
+            <Button variant="primary" onClick={() => go(i + 1)} disabled={!canNext} className="w-28">
+              {scene === "welcome" ? "Show me" : "Next"} <ArrowRight className="size-4" />
+            </Button>
+          ) : (
+            <Button variant="primary" onClick={onDone} className="w-28">
+              Done
+            </Button>
+          )}
+        </div>
+      </motion.div>
+    </div>
   );
 }
 
@@ -201,7 +207,7 @@ export function Onboarding({
 
 function Heading({ eyebrow, title, sub }: { eyebrow?: string; title: ReactNode; sub?: string }) {
   return (
-    <div className="mx-auto mb-9 max-w-2xl text-center">
+    <div className="mx-auto mb-7 max-w-2xl text-center">
       {eyebrow && (
         <motion.p
           initial={{ opacity: 0, y: 8 }}
@@ -212,7 +218,7 @@ function Heading({ eyebrow, title, sub }: { eyebrow?: string; title: ReactNode; 
           {eyebrow}
         </motion.p>
       )}
-      <h2 className="text-balance text-3xl font-semibold tracking-[-0.035em] text-label sm:text-[40px] sm:leading-[1.1]">
+      <h2 className="text-balance text-2xl font-semibold tracking-[-0.035em] text-label sm:text-[30px] sm:leading-[1.15]">
         {title}
       </h2>
       {sub && (
@@ -230,7 +236,7 @@ function Welcome() {
       {/* The wordmark resolves letter by letter, then its full stop drops into place. */}
       <h1
         aria-label="Emitation"
-        className="mb-8 flex items-baseline text-[76px] font-semibold leading-none tracking-[-0.065em] text-label sm:text-[112px]"
+        className="mb-6 flex items-baseline text-[56px] font-semibold leading-none tracking-[-0.065em] text-label sm:text-[80px]"
       >
         {"emitation".split("").map((ch, i) => (
           <span key={i} aria-hidden className="word-in" style={{ "--i": i, "--step": "55ms", "--d": "120ms" } as CSSProperties}>
@@ -507,7 +513,7 @@ function AskBody({ role, onReplay }: { role: Role; onReplay: () => void }) {
         {stage >= 4 ? (
           DEMO_DAYS[role].map((d, k) => <MiniDay key={d.day} d={d} k={k} written />)
         ) : (
-          <div className="grid h-full min-h-[260px] place-items-center rounded-[22px] border border-dashed border-white/10 text-xs text-label-4">
+          <div className="grid h-full min-h-[220px] place-items-center rounded-[22px] border border-dashed border-white/10 text-xs text-label-4">
             your days land here
           </div>
         )}
@@ -692,7 +698,7 @@ function Ready({
       >
         <CheckDraw className="size-20 text-emerald-300" delay={0.2} />
       </motion.div>
-      <h2 className="text-[40px] font-semibold tracking-[-0.04em]">
+      <h2 className="text-[30px] font-semibold tracking-[-0.04em]">
         <BlurText text="You're all set." delay={150} step={60} />
       </h2>
       <p className="mx-auto mt-4 max-w-md text-[15px] leading-relaxed text-label-2">
