@@ -75,6 +75,8 @@ type Recognition = {
   continuous: boolean;
   interimResults: boolean;
   lang: string;
+  /** Chrome's on-device mode: audio never leaves the machine, no network needed. */
+  processLocally?: boolean;
   start(): void;
   stop(): void;
   onresult: ((e: { results: ArrayLike<{ isFinal: boolean; 0: { transcript: string } }> }) => void) | null;
@@ -82,10 +84,45 @@ type Recognition = {
   onend: (() => void) | null;
 };
 
-const speechCtor = (): (new () => Recognition) | undefined => {
+type LocalOptions = { langs: string[]; processLocally: boolean };
+type RecognitionCtor = (new () => Recognition) & {
+  available?: (o: LocalOptions) => Promise<"available" | "downloadable" | "downloading" | "unavailable">;
+  install?: (o: LocalOptions) => Promise<boolean>;
+};
+
+const speechCtor = (): RecognitionCtor | undefined => {
   if (typeof window === "undefined") return undefined;
-  const w = window as unknown as { SpeechRecognition?: new () => Recognition; webkitSpeechRecognition?: new () => Recognition };
+  const w = window as unknown as { SpeechRecognition?: RecognitionCtor; webkitSpeechRecognition?: RecognitionCtor };
   return w.SpeechRecognition ?? w.webkitSpeechRecognition;
+};
+
+/**
+ * Plain browser dictation, preferring the on-device speech model so it works
+ * offline and nothing is sent anywhere. Falls back to the browser's default.
+ */
+async function canRunLocally(Ctor: RecognitionCtor, lang: string, onDownload: () => void): Promise<boolean> {
+  if (!Ctor.available) return false;
+  const opts = { langs: [lang], processLocally: true };
+  try {
+    const state = await Ctor.available(opts);
+    if (state === "available") return true;
+    if ((state === "downloadable" || state === "downloading") && Ctor.install) {
+      onDownload();
+      return await Ctor.install(opts);
+    }
+  } catch {
+    /* engines without on-device speech */
+  }
+  return false;
+}
+
+const DICTATION_ERRORS: Record<string, string> = {
+  network:
+    "This browser can't reach its speech service. Open Emitation in Chrome or Edge — the Claude app's built-in browser has no mic access.",
+  "not-allowed": "Microphone is blocked — allow it from the address bar and try again.",
+  "service-not-allowed": "Voice input is turned off in this browser.",
+  "audio-capture": "No microphone found.",
+  "language-not-supported": "Voice input doesn't support your browser language here.",
 };
 const noopSubscribe = () => () => {};
 
@@ -205,17 +242,30 @@ export const Composer = forwardRef<ComposerHandle, Props>(function Composer(
   // false on the server, the real answer in the browser — without a mount effect.
   const canDictate = useSyncExternalStore(noopSubscribe, () => Boolean(speechCtor()), () => false);
 
-  const stopDictation = useCallback(() => recognition.current?.stop(), []);
+  const cancelled = useRef(false);
+  const stopDictation = useCallback(() => {
+    cancelled.current = true;
+    recognition.current?.stop();
+  }, []);
 
   /** Speech → text, appended to whatever is already typed, words streaming in as you talk. */
-  const toggleDictation = () => {
+  const toggleDictation = async () => {
     if (listening) return stopDictation();
     const Ctor = speechCtor();
     if (!Ctor) return notify("info", "Voice input isn't supported in this browser — try Chrome or Edge");
+    const lang = navigator.language || "en-US";
+    cancelled.current = false;
+    setListening(true);
+    const local = await canRunLocally(Ctor, lang, () =>
+      notify("info", "Getting your browser's offline speech pack — one time only"),
+    );
+    if (cancelled.current) return setListening(false);
+
     const rec = new Ctor();
     rec.continuous = true;
     rec.interimResults = true;
-    rec.lang = navigator.language || "en-US";
+    rec.lang = lang;
+    if (local) rec.processLocally = true;
     const base = area.current?.value.trimEnd() ?? "";
     rec.onresult = (e) => {
       let heard = "";
@@ -223,8 +273,8 @@ export const Composer = forwardRef<ComposerHandle, Props>(function Composer(
       setValue(`${base}${base && heard ? " " : ""}${heard.trimStart()}`);
     };
     rec.onerror = (e) => {
-      if (e.error === "not-allowed" || e.error === "service-not-allowed") notify("err", "Microphone access was blocked");
-      else if (e.error !== "no-speech" && e.error !== "aborted") notify("err", `Voice input: ${e.error}`);
+      if (e.error === "no-speech" || e.error === "aborted") return;
+      notify("err", DICTATION_ERRORS[e.error] ?? `Voice input stopped (${e.error})`);
     };
     rec.onend = () => {
       setListening(false);
@@ -232,8 +282,13 @@ export const Composer = forwardRef<ComposerHandle, Props>(function Composer(
       area.current?.focus();
     };
     recognition.current = rec;
-    setListening(true);
-    rec.start();
+    try {
+      rec.start();
+    } catch (err) {
+      setListening(false);
+      recognition.current = null;
+      notify("err", `Voice input: ${(err as Error).message}`);
+    }
   };
 
   useEffect(() => () => recognition.current?.stop(), []);
@@ -551,7 +606,7 @@ export const Composer = forwardRef<ComposerHandle, Props>(function Composer(
             {canDictate && !busy && (
               <button
                 type="button"
-                onClick={toggleDictation}
+                onClick={() => void toggleDictation()}
                 className={cx(
                   "relative grid size-9 place-items-center rounded-full transition-[background-color,color,transform] duration-200 active:scale-90",
                   listening
