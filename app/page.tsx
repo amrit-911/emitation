@@ -106,7 +106,15 @@ export default function Home() {
   const [center, setCenter] = useState<{ open: boolean; tab: CenterTab }>({ open: false, tab: "defaults" });
   /** null = decide from settings: first visit gets the tour. */
   const [tourOpen, setTourOpen] = useState<boolean | null>(null);
-  const tour = tourOpen ?? (hydrated && !settings.onboarded);
+  // Only brand-new users get the tour on their own; anyone already connected can replay it from Look.
+  const alreadySetUp = Boolean(
+    settings.token ||
+      settings.githubToken ||
+      settings.gitlabToken ||
+      settings.bitbucketToken ||
+      settings.selectedRepos.length,
+  );
+  const tour = tourOpen ?? (hydrated && !settings.onboarded && !alreadySetUp);
   const [now] = useState(() => Date.now());
 
   const composer = useRef<ComposerHandle>(null);
@@ -696,16 +704,18 @@ export default function Home() {
 
   return (
     <MotionConfig reducedMotion={settings.reduceMotion ? "always" : "user"}>
-      <TopBar
-        aiOn={aiOn}
-        role={settings.role}
-        ready={ready}
-        team={profile?.activeTeam?.name}
-        repos={selectedRepos}
-        codeFirst={role.codeFirst}
-        onOpen={openCenter}
-        onHome={() => (hasResults ? undefined : composer.current?.focus())}
-      />
+      {!tour && (
+        <TopBar
+          aiOn={aiOn}
+          role={settings.role}
+          ready={ready}
+          team={profile?.activeTeam?.name}
+          repos={selectedRepos}
+          codeFirst={role.codeFirst}
+          onOpen={openCenter}
+          onHome={() => (hasResults ? undefined : composer.current?.focus())}
+        />
+      )}
       <Island state={island} onStop={busy === "run" || busy === "day" ? stop : undefined} />
 
       {restored && (
