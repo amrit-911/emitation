@@ -1,97 +1,122 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { AnimatePresence, MotionConfig, motion } from "motion/react";
 import {
-  Braces,
+  ArrowRight,
   CalendarRange,
   CheckCircle2,
-  CloudUpload,
+  ClipboardList,
+  CodeXml,
+  FlaskConical,
+  FolderOpen,
   GitCommitHorizontal,
+  KeyRound,
   Layers,
-  MessageSquareText,
-  RefreshCw,
-  Settings2,
+  Pin,
+  SlidersHorizontal,
   Sparkles,
-  TriangleAlert,
-  Wand2,
-  Zap,
+  Clock3,
 } from "lucide-react";
-import {
-  Badge,
-  BitbucketMark,
-  Button,
-  Card,
-  GithubMark,
-  GitlabMark,
-  Input,
-  Label,
-  SectionTitle,
-  TagPicker,
-  Textarea,
-  Toaster,
-  Toggle,
-  cx,
-} from "@/components/ui";
-import type { Toast } from "@/components/ui";
+import { Composer } from "@/components/Composer";
+import type { ComposerHandle } from "@/components/Composer";
+import { ControlCenter } from "@/components/ControlCenter";
+import type { CenterTab } from "@/components/ControlCenter";
 import { DayCard } from "@/components/DayCard";
-import { RepoPicker } from "@/components/RepoPicker";
-import { SettingsDrawer } from "@/components/SettingsDrawer";
+import { Onboarding } from "@/components/Onboarding";
+import { PushDock } from "@/components/PushDock";
+import { ProviderMark } from "@/components/RepoPicker";
+import { RunPanel, StatStrip, rangeLabel } from "@/components/RunPanel";
+import type { RunState, Step } from "@/components/RunPanel";
+import { BlurText, Island, RevealLine } from "@/components/fx";
+import type { IslandState } from "@/components/fx";
+import { Logo, cx, spring, useSpotlight } from "@/components/ui";
 import { useSettings } from "@/lib/storage";
-import { groupCommitsByDate, spreadCommitBursts } from "@/lib/commitPlanning";
+import { roleOf } from "@/lib/roles";
+import { localPlan } from "@/lib/localPlan";
 import {
   activityTags,
-  composeDescription,
   isDayCovered,
   parseProfile,
   projectTags,
   remainingHours,
-  splitHours,
   validateEntry,
 } from "@/lib/emit";
+import { formatHours, keyToEpoch, prettyDate, toKey, weekdayShort } from "@/lib/dates";
+import { attachmentCommits, describeAttachments } from "@/lib/folderContext";
 import {
-  eachDay,
-  formatHours,
-  fromKey,
-  isWeekend,
-  keepDay,
-  keyToEpoch,
-  rangePreset,
-  toKey,
-  weekdayShort,
-} from "@/lib/dates";
-import type { Commit, Day, Entry, ExistingEntry, Repo } from "@/lib/types";
-
-type ExistingByDate = Map<string, { hours: number; entries: ExistingEntry[] }>;
+  applyWritten,
+  buildDays,
+  fetchExisting,
+  loadDraft,
+  missingTokens,
+  placeCommits,
+  planPrompt,
+  pullCommits,
+  pushEntry,
+  saveDraft,
+  uid,
+  writeDays,
+} from "@/lib/engine";
+import type { ExistingByDate } from "@/lib/engine";
+import { DEFAULT_PROFILE_JSON } from "@/lib/default-profile";
+import type { Attachment, Commit, Day, Entry, Plan, Repo, Role, RunConfig } from "@/lib/types";
 
 const REPO_KEY = "emitation.repos.v2";
 
-const uid = () => Math.random().toString(36).slice(2, 10);
+type Toast = { id: number; tone: "ok" | "err" | "info"; message: string };
+
+const ROLE_ICON: Record<Role, React.ReactNode> = {
+  developer: <CodeXml className="size-4" />,
+  tester: <FlaskConical className="size-4" />,
+  ba: <ClipboardList className="size-4" />,
+};
+
+/** A callback whose identity never changes but always sees the latest render. */
+function useStable<A extends unknown[], R>(fn: (...args: A) => R) {
+  const ref = useRef(fn);
+  useLayoutEffect(() => {
+    ref.current = fn;
+  });
+  return useCallback((...args: A) => ref.current(...args), []);
+}
+
+const isAbort = (err: unknown) => (err as Error)?.name === "AbortError";
 
 export default function Home() {
   const { settings, patch, hydrated } = useSettings();
+  const role = roleOf(settings.role);
 
+  const [restored, setRestored] = useState(false);
   const [repos, setRepos] = useState<Repo[]>([]);
-  const [range, setRange] = useState(() => rangePreset("thisMonth"));
   const [days, setDays] = useState<Day[]>([]);
+  const [config, setConfig] = useState<RunConfig | null>(null);
+  const [pulled, setPulled] = useState<Commit[]>([]);
+  const [lastPlan, setLastPlan] = useState<Plan | null>(null);
+  const [run, setRun] = useState<RunState | null>(null);
+  /** Dates picked from the + menu; every run stays inside them until unlocked. */
+  const [lockedRange, setLockedRange] = useState<{ from: string; to: string } | null>(null);
+  const [attachments, setAttachments] = useState<Attachment[]>([]);
+  const [busy, setBusy] = useState<null | "run" | "push" | "existing" | "day">(null);
+  const [writing, setWriting] = useState<Set<string>>(() => new Set());
   const [dryRun, setDryRun] = useState(false);
-  const [settingsOpen, setSettingsOpen] = useState(false);
-  const [busy, setBusy] = useState<null | "commits" | "existing" | "ai" | "custom" | "push">(
-    null,
-  );
-  /** Every commit from the last pull, at its authored date — before any spreading. */
-  const [pulledCommits, setPulledCommits] = useState<Commit[]>([]);
-  /** Blank means "the whole timeline". */
-  const [customRange, setCustomRange] = useState({ from: "", to: "" });
   const [progress, setProgress] = useState({ done: 0, total: 0 });
+  const [justPushed, setJustPushed] = useState(false);
   const [toasts, setToasts] = useState<Toast[]>([]);
+  const [center, setCenter] = useState<{ open: boolean; tab: CenterTab }>({ open: false, tab: "defaults" });
+  /** null = decide from settings: first visit gets the tour. */
+  const [tourOpen, setTourOpen] = useState<boolean | null>(null);
+  const tour = tourOpen ?? (hydrated && !settings.onboarded);
+  const [now] = useState(() => Date.now());
+
+  const composer = useRef<ComposerHandle>(null);
+  const abort = useRef<AbortController | null>(null);
   const toastId = useRef(0);
 
-  const notify = useCallback((tone: Toast["tone"], message: string) => {
-    const id = (toastId.current += 1);
-    setToasts((t) => [...t, { id, tone, message }]);
-    setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), 4200);
-  }, []);
+  /* ------------------------------------------------------------- lifecycle */
 
+  // Hydrating from localStorage is syncing with an external store; it can only happen after mount.
+  /* eslint-disable react-hooks/set-state-in-effect */
   useEffect(() => {
     try {
       const raw = localStorage.getItem(REPO_KEY);
@@ -99,1175 +124,982 @@ export default function Home() {
     } catch {
       /* ignore */
     }
+    const draft = loadDraft();
+    if (draft) {
+      setDays(draft.days);
+      setConfig(draft.config);
+      setPulled(draft.commits ?? []);
+      if (draft.prompt) {
+        setRun({
+          id: "restored",
+          prompt: draft.prompt,
+          status: "done",
+          steps: [],
+          summary: draft.summary || undefined,
+          startedAt: 0,
+        });
+      }
+    }
+    setRestored(true);
+  }, []);
+  /* eslint-enable react-hooks/set-state-in-effect */
+
+  useEffect(() => {
+    if (!restored) return;
+    const t = setTimeout(() => {
+      saveDraft(
+        config && days.length
+          ? { days, config, commits: pulled, prompt: run?.prompt ?? "", summary: run?.summary ?? "" }
+          : null,
+      );
+    }, 500);
+    return () => clearTimeout(t);
+  }, [restored, days, config, pulled, run?.prompt, run?.summary]);
+
+  useEffect(() => {
+    const root = document.documentElement;
+    root.dataset.accent = settings.accent;
+    root.dataset.motion = settings.reduceMotion ? "reduced" : "full";
+  }, [settings.accent, settings.reduceMotion]);
+
+  useEffect(() => {
+    document.documentElement.dataset.overlay = tour ? "on" : "off";
+  }, [tour]);
+
+  const aiOn = busy === "run" || busy === "day";
+  useEffect(() => {
+    document.documentElement.dataset.ai = aiOn ? "on" : "off";
+  }, [aiOn]);
+
+  // ⌘K / Ctrl+K, or "/" outside a field, jumps to the prompt.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const field = (e.target as HTMLElement)?.closest("input, textarea, [contenteditable]");
+      if ((e.key === "k" && (e.metaKey || e.ctrlKey)) || (e.key === "/" && !field)) {
+        e.preventDefault();
+        composer.current?.focus();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
+  const notify = useCallback((tone: Toast["tone"], message: string) => {
+    const id = (toastId.current += 1);
+    setToasts((t) => [...t.slice(-3), { id, tone, message }]);
+    setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), tone === "err" ? 6500 : 3600);
   }, []);
 
   const persistRepos = useCallback((next: Repo[]) => {
     setRepos(next);
-    localStorage.setItem(REPO_KEY, JSON.stringify(next));
+    try {
+      localStorage.setItem(REPO_KEY, JSON.stringify(next));
+    } catch {
+      /* ignore */
+    }
   }, []);
 
-  const { profile, error: profileError } = useMemo(
-    () => parseProfile(settings.profileJson),
-    [settings.profileJson],
-  );
+  const openCenter = useCallback((tab: CenterTab) => setCenter({ open: true, tab }), []);
+  const onAttach = useCallback((a: Attachment[]) => setAttachments((prev) => [...prev, ...a]), []);
+  const onRemoveAttachment = useCallback((id: string) => setAttachments((prev) => prev.filter((a) => a.id !== id)), []);
 
+  /* --------------------------------------------------------------- profile */
+
+  const { profile, error: profileError } = useMemo(() => parseProfile(settings.profileJson), [settings.profileJson]);
   const projects = useMemo(() => projectTags(profile), [profile]);
   const activities = useMemo(() => activityTags(profile), [profile]);
   const minWords = profile?.activeTeam?.activityMinWordCount ?? 2;
   const minTags = profile?.activeTeam?.activityMinUniqueTags ?? 2;
   const maxDelay = profile?.activeTeam?.activityMaxAddDelay ?? 0;
-
   const ready = Boolean(settings.token && profile);
-
-  /* ------------------------------------------------------------ timeline */
-
-  const entriesFromCommits = useCallback(
-    (
-      date: string,
-      commits: Commit[],
-      targetHours: number,
-      textOverrides?: Map<string, string>,
-    ): Entry[] => {
-      if (!commits.length || targetHours <= 0) return [];
-      const groups = new Map<string, Commit[]>();
-      for (const c of commits) {
-        if (!groups.has(c.repoId)) groups.set(c.repoId, []);
-        groups.get(c.repoId)!.push(c);
-      }
-      const repoIds = Array.from(groups.keys());
-      const hours = splitHours(
-        targetHours,
-        repoIds.map((r) => groups.get(r)!.length),
-      );
-
-      return repoIds.map((repoId, i) => {
-        const list = groups.get(repoId)!;
-        const mapping = settings.repoMap[repoId];
-        const polished = textOverrides?.get(`${date}::${repoId}`);
-        const headline =
-          polished ??
-          list
-            .map((c) => c.message)
-            .filter((m) => !/^merge (branch|pull request)/i.test(m))
-            .slice(0, 3)
-            .join("; ");
-        return {
-          id: uid(),
-          date,
-          text: headline || list[0].message,
-          project: mapping?.project || settings.fallbackProject || "",
-          activity: mapping?.activity || settings.fallbackActivity || "",
-          hours: hours[i],
-          source: "commits",
-          commitShas: list.map((c) => c.sha),
-          status: "idle",
-        };
-      });
-    },
-    [settings.repoMap, settings.fallbackProject, settings.fallbackActivity],
+  const hoursPerDay = config?.hoursPerDay ?? settings.hoursPerDay;
+  const firstName = settings.profileJson !== DEFAULT_PROFILE_JSON ? profile?.firstName : undefined;
+  const selectedRepos = useMemo(
+    () => repos.filter((r) => settings.selectedRepos.includes(r.id)),
+    [repos, settings.selectedRepos],
   );
 
-  /**
-   * Rebuilds the day list for the range. Passing `commitsByDate` (already
-   * grouped and, if enabled, spread across empty runs — see fetchCommits)
-   * reseeds every commit-derived entry; passing `existing` refreshes
-   * already-logged hours from Emit without touching unpushed entries.
-   */
-  const buildTimeline = useCallback(
-    (opts?: {
-      commitsByDate?: Map<string, Commit[]>;
-      existing?: ExistingByDate;
-      textOverrides?: Map<string, string>;
-    }) => {
-      const { commitsByDate, existing, textOverrides } = opts ?? {};
-      const keys = eachDay(range.from, range.to).filter((k) => keepDay(k, settings.weekend));
+  /* ------------------------------------------------------------------- run */
 
-      setDays((prev) => {
-        const prevByDate = new Map(prev.map((d) => [d.date, d]));
-        return keys.map((date) => {
-          const old = prevByDate.get(date);
-          const fresh = existing?.get(date);
-          const existingHours = fresh?.hours ?? old?.existingHours ?? 0;
-          const existingEntries = fresh?.entries ?? old?.existingEntries ?? [];
+  const setStep = useCallback((id: string, p: Partial<Step>) => {
+    setRun((r) => (r ? { ...r, steps: r.steps.map((s) => (s.id === id ? { ...s, ...p } : s)) } : r));
+  }, []);
 
-          if (!commitsByDate) {
-            if (old) return { ...old, existingHours, existingEntries };
-            return {
-              date,
-              isWeekend: isWeekend(date),
-              enabled: true,
-              commits: [],
-              entries: [],
-              existingHours,
-              existingEntries,
-            };
-          }
+  async function execute(text: string, forced?: RunConfig) {
+    if (busy) return;
+    const ctrl = new AbortController();
+    abort.current = ctrl;
+    const { signal } = ctrl;
+    const hasTimeline = days.length > 0 && config !== null;
+    const folders = attachments.filter((a) => a.kind === "folder");
 
-          const dayCommits = commitsByDate.get(date) ?? [];
-          const target = remainingHours({ existingHours }, settings.hoursPerDay);
-          return {
-            date,
-            isWeekend: isWeekend(date),
-            enabled: old?.enabled ?? true,
-            hint: old?.hint,
-            commits: dayCommits,
-            entries: entriesFromCommits(date, dayCommits, target, textOverrides),
-            existingHours,
-            existingEntries,
-          };
-        });
-      });
-    },
-    [range.from, range.to, settings.weekend, settings.hoursPerDay, entriesFromCommits],
-  );
-
-  useEffect(() => {
-    if (hydrated) buildTimeline();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [hydrated, range.from, range.to, settings.weekend.saturday, settings.weekend.sunday]);
-
-  /** Sums list_activities into per-day totals, keyed the same way as commits. */
-  const fetchExistingActivities = useCallback(async (): Promise<ExistingByDate> => {
-    if (!settings.token || !profile) throw new Error("Add your Emit token and profile first");
-
-    const since = fromKey(range.from);
-    since.setHours(0, 0, 0, 0);
-    const until = fromKey(range.to);
-    until.setHours(23, 59, 59, 999);
-
-    const res = await fetch("/api/emit/activities", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        token: settings.token,
-        cookie: settings.cookie,
-        teamId: profile.activeTeam._id,
-        fromISO: since.toISOString(),
-        toISO: until.toISOString(),
-      }),
+    setRun({
+      id: uid(),
+      prompt: text,
+      status: "running",
+      startedAt: Date.now(),
+      steps: [
+        { id: "plan", label: forced ? "Your settings" : "Understanding", state: "active" },
+        { id: "commits", label: "Commits", state: "wait" },
+        { id: "emit", label: "Emit", state: "wait" },
+        { id: "write", label: "Writing", state: "wait" },
+      ],
     });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error || "Failed to fetch existing activities");
+    setBusy("run");
+    if (!forced) composer.current?.setValue("");
 
-    const map: ExistingByDate = new Map();
-    for (const a of data.activities as {
-      id: string;
-      date: string;
-      hours: number;
-      description: string;
-      tags: string[];
-    }[]) {
-      const key = toKey(new Date(a.date));
-      const bucket = map.get(key) ?? { hours: 0, entries: [] };
-      bucket.hours += a.hours;
-      bucket.entries.push({ id: a.id, description: a.description, hours: a.hours, tags: a.tags });
-      map.set(key, bucket);
-    }
-    return map;
-  }, [settings.token, settings.cookie, profile, range.from, range.to]);
-
-  async function refreshExisting() {
-    setBusy("existing");
+    let aiError: string | null = null;
     try {
-      const existing = await fetchExistingActivities();
-      buildTimeline({ existing });
-      notify("ok", "Refreshed already-logged hours from Emit");
-    } catch (err) {
-      notify("err", `Filled hours: ${(err as Error).message}`);
-    } finally {
-      setBusy(null);
-    }
-  }
-
-  /* ------------------------------------------------------------- commits */
-
-  /** Sends each (day, repo) group's raw messages to Gemini for a clean sentence. */
-  async function polishCommitMessages(commitsByDate: Map<string, Commit[]>): Promise<Map<string, string>> {
-    const items: { id: string; repo: string; messages: string[] }[] = [];
-    for (const [date, commits] of commitsByDate) {
-      const groups = new Map<string, Commit[]>();
-      for (const c of commits) {
-        if (!groups.has(c.repoId)) groups.set(c.repoId, []);
-        groups.get(c.repoId)!.push(c);
-      }
-      for (const [repoId, list] of groups) {
-        items.push({
-          id: `${date}::${repoId}`,
-          repo: list[0].repo,
-          messages: list.slice(0, 8).map((c) => c.message),
-        });
-      }
-    }
-    if (!items.length) return new Map();
-
-    const CHUNK = 20;
-    const out = new Map<string, string>();
-    for (let i = 0; i < items.length; i += CHUNK) {
-      const res = await fetch("/api/ai/polish", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ items: items.slice(i, i + CHUNK) }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Polish failed");
-      (data.results as { id: string; text: string }[]).forEach((r) => out.set(r.id, r.text));
-    }
-    return out;
-  }
-
-  async function fetchCommits() {
-    const selected = repos.filter((r) => settings.selectedRepos.includes(r.id));
-    const ghRepos = selected.filter((r) => r.provider === "github");
-    const glRepos = selected.filter((r) => r.provider === "gitlab");
-    const bbRepos = selected.filter((r) => r.provider === "bitbucket");
-
-    if (!selected.length) return notify("err", "Pick at least one repo");
-    if (ghRepos.length && !settings.githubToken) {
-      return notify("err", "Add a GitHub token in Connections first");
-    }
-    if (glRepos.length && !settings.gitlabToken) {
-      return notify("err", "Add a GitLab token in Connections first");
-    }
-    if (bbRepos.length && !settings.bitbucketToken) {
-      return notify("err", "Add a Bitbucket token in Connections first");
-    }
-
-    setBusy("commits");
-    try {
-      const since = fromKey(range.from);
-      since.setHours(0, 0, 0, 0);
-      const until = fromKey(range.to);
-      until.setHours(23, 59, 59, 999);
-
-      const jobs: Promise<{ commits: Commit[]; warnings?: string[]; error?: string }>[] = [];
-
-      if (ghRepos.length) {
-        const authors = [
-          settings.githubUser,
-          ...settings.githubEmails.split(",").map((e) => e.trim()),
-        ].filter(Boolean);
-        jobs.push(
-          fetch("/api/github/commits", {
-            method: "POST",
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify({
-              token: settings.githubToken,
-              repos: ghRepos.map((r) => r.fullName),
-              sinceISO: since.toISOString(),
-              untilISO: until.toISOString(),
-              authors,
-              allBranches: settings.scanAllBranches,
-            }),
-          }).then((r) => r.json()),
-        );
-      }
-
-      if (glRepos.length) {
-        const authorEmails = settings.gitlabEmails.split(",").map((e) => e.trim()).filter(Boolean);
-        jobs.push(
-          fetch("/api/gitlab/commits", {
-            method: "POST",
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify({
-              token: settings.gitlabToken,
-              baseUrl: settings.gitlabBaseUrl,
-              projects: glRepos.map((r) => ({ providerId: r.providerId, fullName: r.fullName })),
-              sinceISO: since.toISOString(),
-              untilISO: until.toISOString(),
-              authorEmails,
-              allBranches: settings.scanAllBranches,
-            }),
-          }).then((r) => r.json()),
-        );
-      }
-
-      if (bbRepos.length) {
-        const authorEmails = settings.bitbucketEmails
-          .split(",")
-          .map((e) => e.trim())
-          .filter(Boolean);
-        jobs.push(
-          fetch("/api/bitbucket/commits", {
-            method: "POST",
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify({
-              token: settings.bitbucketToken,
-              authEmail: settings.bitbucketAuthEmail,
-              repos: bbRepos.map((r) => ({
-                fullName: r.fullName,
-                defaultBranch: r.defaultBranch,
-              })),
-              sinceISO: since.toISOString(),
-              untilISO: until.toISOString(),
-              authorEmails,
-              authorUsernames: [settings.bitbucketUser].filter(Boolean),
-              authorAccountIds: [settings.bitbucketAccountId].filter(Boolean),
-              allBranches: settings.scanAllBranches,
-            }),
-          }).then((r) => r.json()),
-        );
-      }
-
-      const [results, existing] = await Promise.all([
-        Promise.all(jobs),
-        fetchExistingActivities().catch((err) => {
-          notify("info", `Couldn't check already-logged hours: ${(err as Error).message}`);
-          return undefined;
-        }),
-      ]);
-      const failed = results.find((r) => r.error);
-      if (failed) throw new Error(failed.error);
-
-      const commits = results.flatMap((r) => r.commits ?? []);
-
-      const keys = eachDay(range.from, range.to).filter((k) => keepDay(k, settings.weekend));
-      const prevByDate = new Map(days.map((d) => [d.date, d]));
-      const metaFor = (key: string) => {
-        const fresh = existing?.get(key);
-        const old = prevByDate.get(key);
-        return {
-          enabled: old?.enabled ?? true,
-          existingHours: fresh?.hours ?? old?.existingHours ?? 0,
+      /* 1 · understand */
+      let plan: Plan;
+      if (forced) {
+        plan = {
+          mode: "build",
+          config: forced,
+          useCommits: lastPlan?.useCommits ?? pulled.length > 0,
+          repoIds: lastPlan?.repoIds ?? [],
+          summary: `Re-running ${rangeLabel(forced)} with your adjustments.`,
         };
-      };
-
-      const rawByDate = groupCommitsByDate(commits);
-      const commitsByDate = settings.spreadCommits
-        ? spreadCommitBursts(
-            rawByDate,
-            keys,
-            (key) => {
-              const m = metaFor(key);
-              return m.enabled && remainingHours({ existingHours: m.existingHours }, settings.hoursPerDay) > 0.01;
-            },
-            settings.spreadMaxDays,
-          )
-        : rawByDate;
-
-      let textOverrides: Map<string, string> | undefined;
-      if (settings.aiSummarizeCommits && commits.length) {
+        setStep("plan", { state: "done", label: "Your settings", detail: "Adjusted by you" });
+      } else {
+        setStep("plan", { label: "Understanding your request" });
+        const today = toKey(new Date());
         try {
-          textOverrides = await polishCommitMessages(commitsByDate);
+          const res = await planPrompt(
+            {
+              prompt: text,
+              today,
+              weekday: new Date().toLocaleDateString("en", { weekday: "long" }),
+              persona: role.persona,
+              defaults: {
+                hoursPerDay: settings.hoursPerDay,
+                saturday: settings.weekend.saturday,
+                sunday: settings.weekend.sunday,
+                spreadCommits: settings.spreadCommits,
+                spreadMaxDays: settings.spreadMaxDays,
+              },
+              timeline: hasTimeline ? { from: config!.from, to: config!.to, days: days.length } : null,
+              lockedRange,
+              repos: repos.map((r) => ({ id: r.id, name: r.fullName, selected: settings.selectedRepos.includes(r.id) })),
+              folders: folders.map((f) => ({
+                name: f.name,
+                commits: f.kind === "folder" ? f.commits.length : 0,
+                remote: f.kind === "folder" ? f.remote : undefined,
+                repoId: f.kind === "folder" ? (f.matchedRepoId ?? f.commits[0]?.repoId) : undefined,
+              })),
+              files: attachments.filter((a) => a.kind === "file").map((a) => a.name),
+            },
+            signal,
+          );
+          plan = res.plan;
         } catch (err) {
-          notify("info", `Commit polish skipped: ${(err as Error).message}`);
+          if (isAbort(err)) throw err;
+          // No key, no credits, offline: read the prompt in plain code so the run still happens.
+          aiError = (err as Error).message;
+          plan = localPlan({
+            prompt: text,
+            today,
+            defaults: {
+              weekend: settings.weekend,
+              hoursPerDay: settings.hoursPerDay,
+              spreadCommits: settings.spreadCommits,
+              spreadMaxDays: settings.spreadMaxDays,
+            },
+            timeline: hasTimeline ? { from: config!.from, to: config!.to } : null,
+            hasLocalCommits: folders.some((f) => f.kind === "folder" && f.commits.length > 0),
+          });
+          notify("info", "AI planner unavailable — read your prompt without it");
+        }
+        // Dates picked in the + menu always win over what the sentence implies.
+        if (lockedRange) {
+          const inside = hasTimeline && lockedRange.from >= config!.from && lockedRange.to <= config!.to;
+          plan = {
+            ...plan,
+            mode: plan.mode === "refine" && inside ? "refine" : "build",
+            config: { ...plan.config, from: lockedRange.from, to: lockedRange.to },
+          };
+        }
+        setStep("plan", {
+          state: "done",
+          label: aiError ? "Read locally" : "Understood",
+          detail: plan.mode === "refine" ? "Refining your timeline" : rangeLabel(plan.config),
+        });
+        setRun((r) => (r ? { ...r, summary: plan.summary } : r));
+      }
+      setLastPlan(plan);
+
+      const refine = plan.mode === "refine" && hasTimeline;
+      const cfg: RunConfig = refine
+        ? { ...plan.config, from: config!.from, to: config!.to, weekend: config!.weekend }
+        : plan.config;
+      let windowFrom = refine && plan.config.from > cfg.from ? plan.config.from : cfg.from;
+      let windowTo = refine && plan.config.to < cfg.to ? plan.config.to : cfg.to;
+      if (windowFrom > windowTo) [windowFrom, windowTo] = [cfg.from, cfg.to];
+      setConfig(cfg);
+
+      let working = days;
+      let pool = pulled;
+
+      if (!refine) {
+        /* 2 · commits */
+        if (plan.useCommits) {
+          setStep("commits", { state: "active", label: "Pulling commits" });
+          const wanted = plan.repoIds.length ? repos.filter((r) => plan.repoIds.includes(r.id)) : selectedRepos;
+          const missing = missingTokens(settings, wanted);
+          const remote = wanted.length
+            ? await pullCommits({ settings, repos: wanted, from: cfg.from, to: cfg.to, signal })
+            : { commits: [], warnings: [] };
+          const local = attachmentCommits(attachments).filter((c) => {
+            const k = toKey(new Date(c.date));
+            return k >= cfg.from && k <= cfg.to;
+          });
+          // Remote copies win: same sha, but they carry a link.
+          const bySha = new Map<string, Commit>();
+          [...local, ...remote.commits].forEach((c) => bySha.set(c.sha, c));
+          pool = Array.from(bySha.values());
+
+          const sources = [
+            wanted.length ? `${wanted.length} repo${wanted.length === 1 ? "" : "s"}` : "",
+            folders.length ? folders.map((f) => f.name).join(", ") : "",
+          ].filter(Boolean);
+          if (!sources.length) {
+            setStep("commits", { state: "skip", label: "Commits", detail: "No repos or folder — attach one or connect a code host" });
+          } else {
+            setStep("commits", {
+              state: "done",
+              label: `${pool.length} commit${pool.length === 1 ? "" : "s"}`,
+              detail: `from ${sources.join(" + ")}`,
+            });
+          }
+          remote.warnings.slice(0, 2).forEach((w) => notify("info", w));
+          if (missing.length) notify("info", `Add a ${missing.join(" / ")} token to pull those repos`);
+        } else {
+          setStep("commits", { state: "skip", detail: "Not needed for this one" });
+          pool = [];
+        }
+
+        /* 3 · what's already on Emit */
+        let existing: ExistingByDate | undefined;
+        if (ready && profile) {
+          setStep("emit", { state: "active", label: "Checking Emit" });
+          try {
+            existing = await fetchExisting({ settings, profile, from: cfg.from, to: cfg.to, signal });
+            const total = Array.from(existing.values()).reduce((a, b) => a + b.hours, 0);
+            setStep("emit", {
+              state: "done",
+              label: "Emit checked",
+              detail: total ? `${formatHours(total)} already logged` : "Nothing logged yet",
+            });
+          } catch (err) {
+            if (isAbort(err)) throw err;
+            setStep("emit", { state: "error", detail: (err as Error).message });
+          }
+        } else {
+          setStep("emit", { state: "skip", detail: "Connect Emit to respect logged hours" });
+        }
+
+        working = buildDays({
+          config: cfg,
+          prev: [],
+          commitsByDate: placeCommits(pool, cfg, existing),
+          existing,
+          tags: settings,
+        });
+        setDays(working);
+        setPulled(pool);
+      } else {
+        setStep("commits", { state: "skip", detail: "Reusing what's loaded" });
+        setStep("emit", { state: "skip", detail: "Reusing what's loaded" });
+      }
+
+      /* 4 · write */
+      const targets = working.filter(
+        (d) =>
+          d.enabled &&
+          d.date >= windowFrom &&
+          d.date <= windowTo &&
+          (remainingHours(d, cfg.hoursPerDay) > 0.01 || d.entries.some((e) => e.status !== "done")),
+      );
+      if (!targets.length) {
+        setStep("write", { state: "skip", detail: working.length ? "Every day is already filled" : "No days in that range" });
+      } else {
+        setStep("write", { state: "active", label: `Writing ${targets.length} day${targets.length === 1 ? "" : "s"}` });
+        setWriting(new Set(targets.map((d) => d.date)));
+        try {
+          const { written, truncated } = await writeDays({
+            prompt: text,
+            persona: role.persona,
+            style: settings.aiPrompt,
+            contextFor: (f, t) => describeAttachments(attachments, f, t),
+            days: targets,
+            commits: pool,
+            config: cfg,
+            settings,
+            projects,
+            activities,
+            selfMention: profile?.activeMember?.mention,
+            signal,
+            onProgress: (done, total) => {
+              if (total > 31) setStep("write", { detail: `${done}/${total} days` });
+            },
+          });
+          setDays((prev) => applyWritten(prev, written));
+          const skipped = Array.from(written.values()).filter((d) => d.skip).length;
+          setStep("write", {
+            state: "done",
+            label: "Written",
+            detail: `${written.size - skipped} day${written.size - skipped === 1 ? "" : "s"}${skipped ? ` · ${skipped} skipped` : ""}`,
+          });
+          if (truncated) notify("info", "Lots of commits — only the first 400 per window were read");
+        } catch (err) {
+          if (isAbort(err)) throw err;
+          // Keep whatever the commits already built; the run is still useful.
+          aiError = (err as Error).message;
+          setStep("write", {
+            state: "error",
+            label: "Couldn't write",
+            detail: pool.length ? "Kept the entries built from your commits" : aiError,
+          });
         }
       }
 
-      setPulledCommits(commits);
-      buildTimeline({ commitsByDate, existing, textOverrides });
-      results.flatMap((r) => r.warnings ?? []).slice(0, 3).forEach((w) => notify("info", w));
-      notify("ok", `${commits.length} commits pulled from ${selected.length} repos`);
+      setRun((r) => (r ? { ...r, status: "done", finishedAt: Date.now() } : r));
+      if (aiError) notify("err", `AI: ${aiError}`);
+      else notify("ok", refine ? "Timeline updated" : "Ready — review, then push");
     } catch (err) {
-      notify("err", `Commits: ${(err as Error).message}`);
+      const stopped = signal.aborted || isAbort(err);
+      const message = stopped ? "Stopped" : (err as Error).message;
+      setRun((r) =>
+        r
+          ? {
+              ...r,
+              status: stopped ? "stopped" : "error",
+              steps: r.steps.map((s) => (s.state === "active" ? { ...s, state: "error", detail: message } : s)),
+            }
+          : r,
+      );
+      notify(stopped ? "info" : "err", stopped ? "Stopped" : message);
+      if (!forced) composer.current?.setValue(text);
     } finally {
       setBusy(null);
+      setWriting(new Set());
+      abort.current = null;
     }
   }
 
-  /* ------------------------------------------------------------------ ai */
+  const stop = useCallback(() => abort.current?.abort(), []);
 
-  async function generate(scope: "gaps" | "all" | string) {
-    const targets = days.filter((d) => {
-      if (!d.enabled) return false;
-      if (remainingHours(d, settings.hoursPerDay) < 0.01) return false;
-      if (scope === "gaps") return d.commits.length === 0;
-      if (scope === "all") return true;
-      return d.date === scope;
-    });
-    if (!targets.length) return notify("info", "Nothing to generate — those days are already fully logged");
+  /* -------------------------------------------------------------- day ops */
 
-    const pool = new Set<string>();
-    Object.values(settings.repoMap).forEach((m) => m.project && pool.add(m.project));
-    if (settings.fallbackProject) pool.add(settings.fallbackProject);
-    const projectPool = pool.size ? Array.from(pool) : projects;
+  const onToggleDay = useCallback(
+    (date: string, on: boolean) => setDays((prev) => prev.map((d) => (d.date === date ? { ...d, enabled: on } : d))),
+    [],
+  );
+  const onHintChange = useCallback(
+    (date: string, hint: string) => setDays((prev) => prev.map((d) => (d.date === date ? { ...d, hint } : d))),
+    [],
+  );
+  const onEntryChange = useCallback((id: string, p: Partial<Entry>) => {
+    setDays((prev) =>
+      prev.map((d) =>
+        d.entries.some((e) => e.id === id) ? { ...d, entries: d.entries.map((e) => (e.id === id ? { ...e, ...p } : e)) } : d,
+      ),
+    );
+  }, []);
+  const onEntryRemove = useCallback((date: string, id: string) => {
+    setDays((prev) => prev.map((d) => (d.date === date ? { ...d, entries: d.entries.filter((e) => e.id !== id) } : d)));
+  }, []);
+  const onEntryAdd = useStable((date: string) => {
+    setDays((prev) =>
+      prev.map((d) =>
+        d.date === date
+          ? {
+              ...d,
+              entries: [
+                ...d.entries,
+                {
+                  id: uid(),
+                  date,
+                  text: "",
+                  project: settings.fallbackProject,
+                  activity: settings.fallbackActivity,
+                  hours: d.entries.length ? 1 : remainingHours(d, hoursPerDay) || hoursPerDay,
+                  source: "manual",
+                  commitShas: [],
+                  status: "idle",
+                },
+              ],
+            }
+          : d,
+      ),
+    );
+  });
 
-    setBusy("ai");
+  const onFillDay = useStable(async (date: string) => {
+    if (busy || !config) return;
+    const day = days.find((d) => d.date === date);
+    if (!day) return;
+    const ctrl = new AbortController();
+    abort.current = ctrl;
+    setBusy("day");
+    setWriting(new Set([date]));
     try {
-      const res = await fetch("/api/ai", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          prompt: settings.aiPrompt,
-          projects: projectPool,
-          activities,
-          fallbackProject: settings.fallbackProject || projectPool[0],
-          fallbackActivity: settings.fallbackActivity || activities[0],
-          days: targets.map((d) => ({
-            date: d.date,
-            weekday: weekdayShort(d.date),
-            hint: d.hint,
-            hours: remainingHours(d, settings.hoursPerDay),
-            commits: d.commits.map((c) => ({
-              repo: c.repo,
-              project: settings.repoMap[c.repoId]?.project,
-              message: c.message,
-            })),
-          })),
-        }),
+      const instructions = [
+        `Rewrite ${date} (${weekdayShort(date)}) only.`,
+        day.hint ? `Note for this day: ${day.hint}` : "",
+        run?.prompt ? `The original request, for context: ${run.prompt}` : "",
+      ]
+        .filter(Boolean)
+        .join("\n");
+      const { written } = await writeDays({
+        prompt: instructions,
+        persona: role.persona,
+        style: settings.aiPrompt,
+        contextFor: (f, t) => describeAttachments(attachments, f, t),
+        days: [day],
+        commits: pulled,
+        config,
+        settings,
+        projects,
+        activities,
+        selfMention: profile?.activeMember?.mention,
+        signal: ctrl.signal,
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Generation failed");
-
-      type Generated = { text: string; project: string; activity: string; hours: number };
-      const generated = new Map<string, Generated[]>(
-        (data.days as { date: string; entries: Generated[] }[]).map((d) => [d.date, d.entries]),
-      );
-
-      setDays((prev) =>
-        prev.map((d) => {
-          const gen = generated.get(d.date);
-          if (!gen?.length) return d;
-          const target = remainingHours(d, settings.hoursPerDay);
-          const hours = splitHours(target || settings.hoursPerDay, gen.map((g) => g.hours || 1));
-          return {
-            ...d,
-            entries: gen.map((g, i) => ({
-              id: uid(),
-              date: d.date,
-              text: g.text,
-              project: g.project,
-              activity: g.activity,
-              hours: hours[i],
-              source: "ai" as const,
-              commitShas: d.commits.map((c) => c.sha),
-              status: "idle" as const,
-            })),
-          };
-        }),
-      );
-      notify("ok", `Filled ${generated.size} day${generated.size === 1 ? "" : "s"}`);
+      setDays((prev) => applyWritten(prev, written));
+      notify("ok", `Rewrote ${prettyDate(date)}`);
     } catch (err) {
-      notify("err", `AI: ${(err as Error).message}`);
+      if (!isAbort(err)) notify("err", (err as Error).message);
     } finally {
       setBusy(null);
+      setWriting(new Set());
+      abort.current = null;
     }
-  }
+  });
 
-  /**
-   * The all-rounder: hands the model the custom prompt, every day in the window
-   * and the raw commit pool (authored dates, not spread), and lets it decide
-   * how bursts map to days, how to summarise, which tags and @mentions to use,
-   * and which days to skip. Days it doesn't return are left alone.
-   */
-  async function runCustom() {
-    if (!settings.customPrompt.trim()) return notify("err", "Write a custom prompt first");
-    const from = customRange.from || range.from;
-    const to = customRange.to || range.to;
-    if (from > to) return notify("err", "Custom window starts after it ends");
-
-    const targets = days.filter((d) => d.enabled && d.date >= from && d.date <= to);
-    if (!targets.length) return notify("info", "No enabled days in that window");
-
-    // A burst just past the window can still belong to days inside it.
-    const tail = fromKey(to);
-    tail.setDate(tail.getDate() + (settings.spreadCommits ? settings.spreadMaxDays : 0));
-    const poolEnd = toKey(tail);
-    const pool = pulledCommits
-      .map((c) => ({ c, key: toKey(new Date(c.date)) }))
-      .filter(({ key }) => key >= from && key <= poolEnd)
-      .sort((a, b) => a.c.date.localeCompare(b.c.date));
-
-    setBusy("custom");
-    try {
-      const res = await fetch("/api/ai/custom", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          prompt: settings.customPrompt,
-          projects,
-          activities,
-          fallbackProject: settings.fallbackProject || projects[0],
-          fallbackActivity: settings.fallbackActivity || activities[0],
-          selfMention: profile?.activeMember?.mention,
-          spread: { enabled: settings.spreadCommits, maxDays: settings.spreadMaxDays },
-          days: targets.map((d) => ({
-            date: d.date,
-            weekday: weekdayShort(d.date),
-            targetHours: remainingHours(d, settings.hoursPerDay),
-            alreadyLogged: d.existingEntries.map((e) => `${formatHours(e.hours)} ${e.description}`),
-            hint: d.hint,
-          })),
-          commits: pool.map(({ c, key }) => ({
-            date: key,
-            time: new Date(c.date).toTimeString().slice(0, 5),
-            repo: c.repo,
-            project: settings.repoMap[c.repoId]?.project,
-            activity: settings.repoMap[c.repoId]?.activity,
-            message: c.message,
-          })),
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Custom run failed");
-
-      type Generated = {
-        text: string;
-        project: string;
-        activity: string;
-        hours: number;
-        mentions: string[];
-      };
-      const result = new Map(
-        (data.days as { date: string; skip: boolean; entries: Generated[] }[]).map((d) => [
-          d.date,
-          d,
-        ]),
-      );
-
-      setDays((prev) =>
-        prev.map((d) => {
-          const gen = result.get(d.date);
-          if (!gen) return d;
-          // Anything already pushed stays; only unsent entries are replaced.
-          const kept = d.entries.filter((e) => e.status === "done");
-          if (gen.skip) return { ...d, enabled: false, entries: kept };
-          return {
-            ...d,
-            entries: [
-              ...kept,
-              ...gen.entries.map((g) => ({
-                id: uid(),
-                date: d.date,
-                text: g.text,
-                project: g.project,
-                activity: g.activity,
-                hours: g.hours,
-                mentions: g.mentions,
-                source: "custom" as const,
-                commitShas: d.commits.map((c) => c.sha),
-                status: "idle" as const,
-              })),
-            ],
-          };
-        }),
-      );
-
-      const skipped = Array.from(result.values()).filter((d) => d.skip).length;
-      const filled = result.size - skipped;
-      notify(
-        "ok",
-        `Custom prompt wrote ${filled} day${filled === 1 ? "" : "s"}` +
-          (skipped ? `, skipped ${skipped}` : ""),
-      );
-      if (data.truncated) notify("info", "Too many commits — only the first 400 were sent");
-    } catch (err) {
-      notify("err", `Custom: ${(err as Error).message}`);
-    } finally {
-      setBusy(null);
-    }
-  }
-
-  /* ---------------------------------------------------------------- push */
+  /* ------------------------------------------------------------------ push */
 
   const pushable = useMemo(
     () => days.filter((d) => d.enabled).flatMap((d) => d.entries.filter((e) => e.status !== "done")),
     [days],
   );
-
   const totalHours = pushable.reduce((a, e) => a + e.hours, 0);
-
-  const invalidCount = pushable.filter((e) =>
-    validateEntry(e, { minWords, minTags, projects, activities }).some((p) => p.level === "error"),
-  ).length;
-
-  const setEntryState = useCallback((id: string, patchEntry: Partial<Entry>) => {
-    setDays((prev) =>
-      prev.map((d) => ({
-        ...d,
-        entries: d.entries.map((e) => (e.id === id ? { ...e, ...patchEntry } : e)),
-      })),
-    );
-  }, []);
+  const isValid = useCallback(
+    (e: Entry) => !validateEntry(e, { minWords, minTags, projects, activities }).some((p) => p.level === "error"),
+    [minWords, minTags, projects, activities],
+  );
+  const invalidCount = pushable.filter((e) => !isValid(e)).length;
 
   async function push() {
-    if (!profile) return notify("err", "Profile JSON missing");
-    const queue = pushable.filter(
-      (e) =>
-        !validateEntry(e, { minWords, minTags, projects, activities }).some(
-          (p) => p.level === "error",
-        ),
-    );
+    if (!profile || !settings.token) {
+      notify("err", "Connect Emit first");
+      openCenter("connections");
+      return;
+    }
+    const queue = pushable.filter(isValid);
     if (!queue.length) return notify("err", "No valid entries to push");
 
     setBusy("push");
     setProgress({ done: 0, total: queue.length });
     let ok = 0;
     let failed = 0;
-
     for (const entry of queue) {
-      setEntryState(entry.id, { status: "sending", message: undefined });
+      onEntryChange(entry.id, { status: "sending", message: undefined });
       try {
-        const res = await fetch("/api/emit/activity", {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({
-            token: settings.token,
-            cookie: settings.cookie,
-            profile,
-            epochMs: keyToEpoch(entry.date),
-            hours: entry.hours,
-            description: composeDescription(entry),
-            tags: [entry.project, entry.activity].filter(Boolean),
-            mentions: entry.mentions ?? [],
-            dryRun,
-          }),
-        });
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+        await pushEntry({ settings, profile, entry, dryRun });
         ok += 1;
-        setEntryState(entry.id, {
+        onEntryChange(entry.id, {
           status: "done",
-          message: dryRun ? "dry run: payload built, nothing sent" : "added to Emit",
+          message: dryRun ? "Dry run: payload built, nothing sent" : "Added to Emit",
         });
       } catch (err) {
         failed += 1;
-        setEntryState(entry.id, { status: "error", message: (err as Error).message });
+        onEntryChange(entry.id, { status: "error", message: (err as Error).message });
       }
       setProgress((p) => ({ ...p, done: p.done + 1 }));
       await new Promise((r) => setTimeout(r, 250));
     }
-
     setBusy(null);
-    notify(failed ? "err" : "ok", `${ok} pushed${failed ? `, ${failed} failed` : ""}`);
+    if (!failed) {
+      setJustPushed(true);
+      setTimeout(() => setJustPushed(false), 2800);
+    }
+    notify(failed ? "err" : "ok", `${ok} ${dryRun ? "checked" : "pushed"}${failed ? `, ${failed} failed` : ""}`);
   }
 
-  /* -------------------------------------------------------------- render */
+  async function refreshExisting() {
+    if (!profile || !config) return;
+    setBusy("existing");
+    try {
+      const existing = await fetchExisting({ settings, profile, from: config.from, to: config.to });
+      setDays((prev) => buildDays({ config, prev, existing, tags: settings }));
+      notify("ok", "Refreshed what's already on Emit");
+    } catch (err) {
+      notify("err", `Emit: ${(err as Error).message}`);
+    } finally {
+      setBusy(null);
+    }
+  }
 
+  function startOver() {
+    if (pushable.length && !window.confirm("Clear this timeline? Unsent entries will be lost.")) return;
+    setDays([]);
+    setConfig(null);
+    setPulled([]);
+    setRun(null);
+    setLastPlan(null);
+    saveDraft(null);
+    composer.current?.focus();
+  }
+
+  /* --------------------------------------------------------------- derived */
+
+  const hasResults = days.length > 0 || run?.status === "running";
   const commitDays = days.filter((d) => d.commits.length > 0).length;
-  const coveredDays = days.filter(
-    (d) => d.enabled && isDayCovered(d, settings.hoursPerDay),
-  ).length;
+  const coveredDays = days.filter((d) => d.enabled && isDayCovered(d, hoursPerDay)).length;
   const gapDays = days.filter(
-    (d) =>
-      d.enabled && d.commits.length === 0 && remainingHours(d, settings.hoursPerDay) > 0.01,
+    (d) => d.enabled && !d.entries.length && remainingHours(d, hoursPerDay) > 0.01,
   ).length;
   const staleDays = maxDelay
-    ? days.filter((d) => d.enabled && (Date.now() - keyToEpoch(d.date)) / 86_400_000 > maxDelay)
-        .length
+    ? days.filter((d) => d.enabled && (now - keyToEpoch(d.date)) / 86_400_000 > maxDelay).length
     : 0;
 
+  const activeStep = run?.status === "running" ? run.steps.find((s) => s.state === "active") : undefined;
+  const lastToast = toasts[toasts.length - 1];
+  const island: IslandState = lastToast
+    ? { kind: "toast", ...lastToast }
+    : busy === "push"
+      ? { kind: "busy", label: dryRun ? "Dry-running entries" : "Pushing to Emit", detail: `${progress.done}/${progress.total}` }
+      : activeStep
+        ? { kind: "busy", label: activeStep.label, detail: activeStep.detail }
+        : busy === "day"
+          ? { kind: "busy", label: "Rewriting the day" }
+          : busy === "existing"
+            ? { kind: "busy", label: "Checking Emit" }
+            : null;
+
+  const sourcesLabel = useMemo(() => {
+    if (!lastPlan?.useCommits) return undefined;
+    const n = lastPlan.repoIds.length || selectedRepos.length;
+    const folders = attachments.filter((a) => a.kind === "folder").length;
+    return [n ? `${n} repo${n === 1 ? "" : "s"}` : "", folders ? `${folders} folder${folders === 1 ? "" : "s"}` : ""]
+      .filter(Boolean)
+      .join(" + ") || undefined;
+  }, [lastPlan, selectedRepos.length, attachments]);
+
+  const hour = new Date().getHours();
+  const greeting = `${hour < 12 ? "Good morning" : hour < 18 ? "Good afternoon" : "Good evening"}${firstName ? `, ${firstName}` : ""}.`;
+
+  const pills = [
+    ...settings.savedPrompts.map((p) => ({ label: p.length > 38 ? `${p.slice(0, 36)}…` : p, prompt: p, pinned: true })),
+    ...(hasResults ? role.refine : role.pills).map((p) => ({ ...p, pinned: false })),
+  ];
+
   return (
-    <div className="flex min-h-screen flex-col">
-      <header className="sticky top-0 z-30 border-b border-white/[0.07] bg-ink-950/80 backdrop-blur-xl">
-        <div className="mx-auto flex max-w-[1500px] items-center gap-4 px-5 py-3">
-          <div className="flex items-center gap-2.5">
-            <div className="grid size-9 place-items-center rounded-xl bg-linear-to-br from-brand-500 to-brand-700 shadow-[0_8px_24px_-10px_var(--color-brand-500)]">
-              <Zap className="size-4 text-white" />
-            </div>
-            <div>
-              <h1 className="text-sm font-semibold tracking-tight text-slate-100">Emitation</h1>
-              <p className="text-[11px] text-slate-500">timesheet autopilot</p>
-            </div>
-          </div>
+    <MotionConfig reducedMotion={settings.reduceMotion ? "always" : "user"}>
+      <TopBar
+        aiOn={aiOn}
+        role={settings.role}
+        ready={ready}
+        team={profile?.activeTeam?.name}
+        repos={selectedRepos}
+        codeFirst={role.codeFirst}
+        onOpen={openCenter}
+        onHome={() => (hasResults ? undefined : composer.current?.focus())}
+      />
+      <Island state={island} onStop={busy === "run" || busy === "day" ? stop : undefined} />
 
-          <div className="ml-4 hidden items-center gap-2 md:flex">
-            <StatusPill ok={Boolean(settings.token)} label="token" />
-            <StatusPill ok={Boolean(profile)} label={profile?.activeTeam?.name ?? "profile"} />
-            <StatusPill ok={Boolean(settings.githubToken)} label="github" />
-            <StatusPill ok={Boolean(settings.gitlabToken)} label="gitlab" />
-            <StatusPill ok={Boolean(settings.bitbucketToken)} label="bitbucket" />
-          </div>
-
-          <div className="ml-auto flex items-center gap-3">
-            <div className="w-28">
-              <Toggle checked={dryRun} onChange={setDryRun} label="Dry run" />
-            </div>
-            <Button size="sm" onClick={() => setSettingsOpen(true)}>
-              <Settings2 className="size-3.5" /> Connections
-            </Button>
-          </div>
-        </div>
-      </header>
-
-      <main className="mx-auto grid w-full max-w-[1500px] flex-1 gap-5 px-5 py-6 lg:grid-cols-[380px_minmax(0,1fr)]">
-        <div className="space-y-4 lg:sticky lg:top-19 lg:self-start">
-          <Card className="p-4">
-            <SectionTitle
-              icon={<CalendarRange className="size-4" />}
-              title="Timeline"
-              hint="Which days get filled in"
-            />
-
-            <div className="mt-3 grid grid-cols-2 gap-2">
-              <div>
-                <Label htmlFor="from">From</Label>
-                <Input
-                  id="from"
-                  type="date"
-                  value={range.from}
-                  max={range.to}
-                  onChange={(e) => setRange((r) => ({ ...r, from: e.target.value }))}
-                />
-              </div>
-              <div>
-                <Label htmlFor="to">To</Label>
-                <Input
-                  id="to"
-                  type="date"
-                  value={range.to}
-                  min={range.from}
-                  onChange={(e) => setRange((r) => ({ ...r, to: e.target.value }))}
-                />
-              </div>
-            </div>
-
-            <div className="mt-2 flex flex-wrap gap-1.5">
-              {(
-                [
-                  ["thisMonth", "This month"],
-                  ["lastMonth", "Last month"],
-                  ["last7", "Last 7d"],
-                  ["last30", "Last 30d"],
-                ] as const
-              ).map(([kind, label]) => (
-                <Button
-                  key={kind}
-                  size="sm"
-                  variant="subtle"
-                  onClick={() => setRange(rangePreset(kind))}
+      {restored && (
+        <main
+          className={cx(
+            "mx-auto flex w-full max-w-[920px] flex-1 flex-col px-4 transition-[padding] duration-700 ease-apple sm:px-6",
+            hasResults ? "pb-40 pt-[84px]" : "pb-24 pt-[14vh]",
+            tour && "invisible",
+          )}
+        >
+          <AnimatePresence mode="popLayout">
+            {!hasResults && (
+              <motion.div
+                key="hero"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0, y: -30, filter: "blur(12px)", transition: { duration: 0.35 } }}
+                className="mb-9 text-center"
+              >
+                <motion.span
+                  initial={{ opacity: 0, y: 8, scale: 0.95 }}
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  transition={{ ...spring.smooth, delay: 0.05 }}
+                  className="mb-6 inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.05] py-1 pl-1.5 pr-3 text-xs text-label-2"
                 >
-                  {label}
-                </Button>
-              ))}
-            </div>
+                  <span className="grid size-5 place-items-center rounded-full text-white [&>svg]:size-3" style={{ background: "var(--accent-grad)" }}>
+                    {settings.role ? ROLE_ICON[settings.role] : <Sparkles />}
+                  </span>
+                  {role.label} mode
+                </motion.span>
+                <h1 className="text-balance text-[38px] font-semibold leading-[1.06] tracking-[-0.045em] sm:text-[54px]">
+                  <BlurText text={greeting} step={45} />
+                  <br />
+                  <RevealLine delay={300} className="text-ai pb-1.5">
+                    What did you work on?
+                  </RevealLine>
+                </h1>
+                <p className="mx-auto mt-4 max-w-md text-pretty text-[15px] leading-relaxed text-label-3">
+                  <BlurText text={role.blurb} delay={600} step={10} />
+                </p>
+              </motion.div>
+            )}
+          </AnimatePresence>
 
-            <div className="mt-4 space-y-1 rounded-xl border border-white/8 bg-white/2 px-3 py-2">
-              <p className="text-[11px] font-medium uppercase tracking-wider text-slate-500">
-                Weekends
-              </p>
-              <Toggle
-                checked={settings.weekend.saturday}
-                onChange={(v) => patch({ weekend: { ...settings.weekend, saturday: v } })}
-                label="Fill Saturdays"
-              />
-              <Toggle
-                checked={settings.weekend.sunday}
-                onChange={(v) => patch({ weekend: { ...settings.weekend, sunday: v } })}
-                label="Fill Sundays"
-              />
-            </div>
+          <Composer
+            ref={composer}
+            onSubmit={(v) => void execute(v)}
+            onStop={stop}
+            busy={busy === "run"}
+            examples={hasResults ? role.refine.map((p) => p.prompt) : role.examples}
+            attachments={attachments}
+            onAttach={onAttach}
+            onRemoveAttachment={onRemoveAttachment}
+            repos={repos}
+            lockedRange={lockedRange}
+            onLockRange={setLockedRange}
+            sourcesChip={role.codeFirst ? { count: selectedRepos.length, onClick: () => openCenter("sources") } : null}
+            onSavePrompt={(v) => {
+              if (settings.savedPrompts.includes(v)) return notify("info", "Already pinned");
+              patch({ savedPrompts: [v, ...settings.savedPrompts].slice(0, 8) });
+              notify("ok", "Pinned — it's a pill now");
+            }}
+            compact={hasResults}
+            notify={notify}
+          />
 
-            <div className="mt-3 space-y-1.5 rounded-xl border border-white/8 bg-white/2 px-3 py-2">
-              <p className="text-[11px] font-medium uppercase tracking-wider text-slate-500">
-                Commit spreading
-              </p>
-              <Toggle
-                checked={settings.spreadCommits}
-                onChange={(v) => patch({ spreadCommits: v })}
-                label="Spread bursts into empty days"
-                hint="A commit day right after empty gaps gets split backward across them"
-              />
-              {settings.spreadCommits && (
-                <div className="flex items-center gap-2 pl-1 pt-1">
-                  <Label htmlFor="spreadMax">Look back up to</Label>
-                  <Input
-                    id="spreadMax"
-                    type="number"
-                    min={1}
-                    max={14}
-                    step={1}
-                    value={settings.spreadMaxDays}
-                    onChange={(e) => patch({ spreadMaxDays: Math.max(1, Number(e.target.value) || 3) })}
-                    className="h-7 w-16 py-0 text-center text-xs"
+          {/* prompt pills */}
+          {busy !== "run" && (
+            <div className={cx("flex flex-wrap gap-2", hasResults ? "mt-3" : "mt-5 justify-center")}>
+              <AnimatePresence mode="popLayout">
+                {pills.map((p, k) => (
+                  <Pill key={`${hasResults}-${p.prompt}`} index={k} pinned={p.pinned} onClick={() => composer.current?.typeIn(p.prompt)}>
+                    {p.label}
+                  </Pill>
+                ))}
+              </AnimatePresence>
+            </div>
+          )}
+
+          <AnimatePresence mode="popLayout">
+            {!hasResults ? (
+              <motion.div
+                key="home"
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0, transition: { ...spring.smooth, delay: 0.45 } }}
+                exit={{ opacity: 0, y: 20, filter: "blur(10px)", transition: { duration: 0.3 } }}
+                className="mt-12 grid gap-3 sm:grid-cols-2"
+              >
+                {role.codeFirst ? (
+                  <ContextCard
+                    icon={<GitCommitHorizontal className="size-4" />}
+                    title={selectedRepos.length ? `${selectedRepos.length} repo${selectedRepos.length === 1 ? "" : "s"} ready` : "Connect your repos"}
+                    body={
+                      selectedRepos.length ? (
+                        <span className="flex flex-wrap gap-1.5">
+                          {selectedRepos.slice(0, 4).map((r) => (
+                            <span key={r.id} className="inline-flex items-center gap-1 rounded-full bg-white/[0.06] px-2 py-0.5 text-[11px] text-label-2">
+                              <ProviderMark provider={r.provider} className="size-3" />
+                              {r.fullName.split("/").pop()}
+                            </span>
+                          ))}
+                          {selectedRepos.length > 4 && <span className="text-[11px] text-label-3">+{selectedRepos.length - 4}</span>}
+                        </span>
+                      ) : (
+                        "GitHub, GitLab or Bitbucket — or skip tokens entirely and attach a repo folder."
+                      )
+                    }
+                    action={selectedRepos.length ? "Manage" : "Connect"}
+                    onClick={() => openCenter(selectedRepos.length || repos.length ? "sources" : "connections")}
                   />
-                  <span className="text-[11px] text-slate-500">days</span>
-                </div>
-              )}
-            </div>
-
-            <div className="mt-3 grid grid-cols-2 gap-2">
-              <div>
-                <Label htmlFor="hpd">Hours / day</Label>
-                <Input
-                  id="hpd"
-                  type="number"
-                  min={0.25}
-                  max={24}
-                  step={0.25}
-                  value={settings.hoursPerDay}
-                  onChange={(e) => patch({ hoursPerDay: Number(e.target.value) || 8 })}
+                ) : (
+                  <ContextCard
+                    icon={<FolderOpen className="size-4" />}
+                    title={settings.role === "tester" ? "Bring your test plans" : "Bring your notes"}
+                    body={
+                      settings.role === "tester"
+                        ? "Attach a folder of test cases or specs — files you edited on a day hint at what you did."
+                        : "Attach meeting notes, BRDs or a docs folder — entries get grounded in real work."
+                    }
+                    action="Attach"
+                    onClick={() => composer.current?.attachFolder()}
+                  />
+                )}
+                <ContextCard
+                  icon={ready ? <CheckCircle2 className="size-4" /> : <KeyRound className="size-4" />}
+                  title={ready ? `Connected to ${profile?.activeTeam?.name ?? "Emit"}` : "Connect Emit to push"}
+                  body={
+                    ready
+                      ? `${projects.length} projects · ${activities.length} activities · up to ${maxDelay || "∞"} days back`
+                      : "Paste your token once. You can write and review without it — pushing needs it."
+                  }
+                  action={ready ? "Settings" : "Connect"}
+                  tone={ready ? "ok" : undefined}
+                  onClick={() => openCenter("connections")}
                 />
-              </div>
-              <div className="flex items-end">
-                <Button className="w-full" onClick={() => buildTimeline()}>
-                  <RefreshCw className="size-3.5" /> Rebuild
-                </Button>
-              </div>
-            </div>
-
-            <div className="mt-3 grid gap-2">
-              <div>
-                <Label>Default project</Label>
-                <TagPicker
-                  value={settings.fallbackProject}
-                  options={projects}
-                  onChange={(v) => patch({ fallbackProject: v })}
-                  placeholder="#project"
-                />
-              </div>
-              <div>
-                <Label>Default activity</Label>
-                <TagPicker
-                  value={settings.fallbackActivity}
-                  options={activities}
-                  tone="cyan"
-                  onChange={(v) => patch({ fallbackActivity: v })}
-                  placeholder="#activity"
-                />
-              </div>
-            </div>
-          </Card>
-
-          <Card className="p-4">
-            <SectionTitle
-              icon={
-                <span className="flex items-center gap-1">
-                  <GithubMark className="size-3.5" />
-                  <GitlabMark className="size-3.5 text-orange-400" />
-                  <BitbucketMark className="size-3.5 text-blue-400" />
-                </span>
-              }
-              title="Repositories"
-              hint="Map each repo onto an Emit project"
-              right={
-                <Button
-                  size="sm"
-                  variant="primary"
-                  onClick={fetchCommits}
-                  loading={busy === "commits"}
-                  disabled={busy !== null}
-                >
-                  <GitCommitHorizontal className="size-3.5" /> Pull
-                </Button>
-              }
-            />
-            <div className="mt-3">
-              <RepoPicker
-                repos={repos}
-                selected={settings.selectedRepos}
-                repoMap={settings.repoMap}
-                projects={projects}
-                activities={activities}
-                onToggle={(name, on) =>
-                  patch({
-                    selectedRepos: on
-                      ? [...settings.selectedRepos, name]
-                      : settings.selectedRepos.filter((r) => r !== name),
-                  })
-                }
-                onSelectMany={(names, on) =>
-                  patch({
-                    selectedRepos: on
-                      ? Array.from(new Set([...settings.selectedRepos, ...names]))
-                      : settings.selectedRepos.filter((r) => !names.includes(r)),
-                  })
-                }
-                onMap={(name, mapping) =>
-                  patch({
-                    repoMap: {
-                      ...settings.repoMap,
-                      [name]: {
-                        ...(settings.repoMap[name] ?? { project: "", activity: "" }),
-                        ...mapping,
-                      },
-                    },
-                  })
-                }
-              />
-            </div>
-
-            <div className="mt-3 rounded-xl border border-white/8 bg-white/2 px-3 py-2">
-              <Toggle
-                checked={settings.aiSummarizeCommits}
-                onChange={(v) => patch({ aiSummarizeCommits: v })}
-                label="Polish commit messages with AI"
-                hint="Turns 'fix', 'wip' into a real sentence — tags stay from your repo mapping"
-              />
-            </div>
-          </Card>
-
-          <Card className="p-4">
-            <SectionTitle
-              icon={<Sparkles className="size-4" />}
-              title="Gap filler"
-              hint="How the model should write your entries"
-            />
-            <Textarea
-              rows={4}
-              className="mt-3 text-xs"
-              value={settings.aiPrompt}
-              onChange={(e) => patch({ aiPrompt: e.target.value })}
-              placeholder="e.g. mostly backend work on Splainer, occasional client calls"
-            />
-            <div className="mt-2 flex gap-2">
-              <Button
-                className="flex-1"
-                variant="primary"
-                onClick={() => generate("gaps")}
-                loading={busy === "ai"}
-                disabled={busy !== null || !gapDays}
-              >
-                <Wand2 className="size-3.5" /> Fill {gapDays} gap{gapDays === 1 ? "" : "s"}
-              </Button>
-              <Button onClick={() => generate("all")} disabled={busy !== null || !days.length}>
-                Rewrite all
-              </Button>
-            </div>
-          </Card>
-
-          <Card className="p-4">
-            <SectionTitle
-              icon={<MessageSquareText className="size-4" />}
-              title="Custom prompt"
-              hint="Steer everything: bursts, summaries, tags, @mentions, skipped days"
-            />
-            <Textarea
-              rows={6}
-              className="mt-3 text-xs"
-              value={settings.customPrompt}
-              onChange={(e) => patch({ customPrompt: e.target.value })}
-              placeholder={[
-                "e.g.",
-                "- the 18th's commit burst covers the 15th–18th, split it evenly",
-                "- summarise by feature, not by repo",
-                "- Mondays: 1h #Meeting sprint planning, tag @priya",
-                "- 22nd–23rd I was on leave, skip them",
-                "- 24th: client demo prep, 4h only",
-              ].join("\n")}
-            />
-            <div className="mt-2 grid grid-cols-2 gap-2">
-              <div>
-                <Label htmlFor="customFrom">Apply from</Label>
-                <Input
-                  id="customFrom"
-                  type="date"
-                  value={customRange.from || range.from}
-                  min={range.from}
-                  max={range.to}
-                  onChange={(e) => setCustomRange((r) => ({ ...r, from: e.target.value }))}
-                />
-              </div>
-              <div>
-                <Label htmlFor="customTo">to</Label>
-                <Input
-                  id="customTo"
-                  type="date"
-                  value={customRange.to || range.to}
-                  min={range.from}
-                  max={range.to}
-                  onChange={(e) => setCustomRange((r) => ({ ...r, to: e.target.value }))}
-                />
-              </div>
-            </div>
-            <p className="mt-2 text-[11px] leading-relaxed text-slate-500">
-              Sees every pulled commit at its real date ({pulledCommits.length} now), what&apos;s
-              already on Emit, and all team tags. Only the days it returns are rewritten; days it
-              skips get switched off. Pushed entries are never touched.
-            </p>
-            <div className="mt-2 flex gap-2">
-              <Button
-                className="flex-1"
-                variant="primary"
-                onClick={runCustom}
-                loading={busy === "custom"}
-                disabled={busy !== null || !days.length || !settings.customPrompt.trim()}
-              >
-                <Wand2 className="size-3.5" /> Run custom prompt
-              </Button>
-              {(customRange.from || customRange.to) && (
-                <Button onClick={() => setCustomRange({ from: "", to: "" })}>Whole range</Button>
-              )}
-            </div>
-          </Card>
-        </div>
-
-        <div className="space-y-4">
-          <Card className="flex flex-wrap items-center gap-x-6 gap-y-3 px-5 py-3.5">
-            <Stat icon={<Layers className="size-4" />} label="days" value={`${days.length}`} />
-            <Stat
-              icon={<GitCommitHorizontal className="size-4" />}
-              label="with commits"
-              value={`${commitDays}`}
-            />
-            <Stat icon={<Sparkles className="size-4" />} label="gaps" value={`${gapDays}`} />
-            <Stat
-              icon={<CheckCircle2 className="size-4" />}
-              label="already filled"
-              value={`${coveredDays}`}
-            />
-            <Stat
-              icon={<Braces className="size-4" />}
-              label="entries"
-              value={`${pushable.length}`}
-            />
-            <Stat
-              icon={<CalendarRange className="size-4" />}
-              label="hours"
-              value={formatHours(totalHours)}
-            />
-
-            <div className="ml-auto flex items-center gap-2">
-              {invalidCount > 0 && (
-                <Badge tone="amber">
-                  <TriangleAlert className="size-3" /> {invalidCount} incomplete
-                </Badge>
-              )}
-              {staleDays > 0 && (
-                <Badge tone="rose">
-                  <TriangleAlert className="size-3" /> {staleDays} past the {maxDelay}-day window
-                </Badge>
-              )}
-              <Button
-                size="sm"
-                onClick={refreshExisting}
-                loading={busy === "existing"}
-                disabled={busy !== null || !ready}
-                title="Re-check what's already logged on Emit for this range"
-              >
-                <RefreshCw className="size-3.5" /> Check Emit
-              </Button>
-              <Button
-                variant="primary"
-                onClick={push}
-                loading={busy === "push"}
-                disabled={busy !== null || !ready || pushable.length === 0}
-              >
-                <CloudUpload className="size-4" />
-                {busy === "push"
-                  ? `${progress.done}/${progress.total}`
-                  : dryRun
-                    ? `Dry run ${pushable.length}`
-                    : `Push ${pushable.length} to Emit`}
-              </Button>
-            </div>
-          </Card>
-
-          {!ready && (
-            <Card className="border-amber-500/25 bg-amber-500/5 px-5 py-4">
-              <p className="text-sm text-amber-200">
-                Add your Emit <strong>token</strong> and paste the <strong>profile JSON</strong> under
-                Connections before pushing.
-              </p>
-              {profileError && settings.profileJson && (
-                <p className="mt-1 text-xs text-amber-300/80">{profileError}</p>
-              )}
-            </Card>
-          )}
-
-          {days.length === 0 ? (
-            <Card className="grid place-items-center px-6 py-16 text-center">
-              <CalendarRange className="mb-3 size-8 text-slate-700" />
-              <p className="text-sm text-slate-400">No days in this range.</p>
-              <p className="mt-1 text-xs text-slate-600">
-                Weekends stay out unless you switch them on.
-              </p>
-            </Card>
-          ) : (
-            <div className="space-y-2.5">
-              {days.map((day) => (
-                <DayCard
-                  key={day.date}
-                  day={day}
-                  projects={projects}
-                  activities={activities}
-                  minWords={minWords}
-                  minTags={minTags}
+              </motion.div>
+            ) : (
+              <motion.div key="results" className="mt-5 space-y-4">
+                <RunPanel
+                  run={run}
+                  config={config}
+                  sourcesLabel={sourcesLabel}
                   busy={busy !== null}
-                  onToggleDay={(on) =>
-                    setDays((prev) =>
-                      prev.map((d) => (d.date === day.date ? { ...d, enabled: on } : d)),
-                    )
-                  }
-                  onHintChange={(hint) =>
-                    setDays((prev) => prev.map((d) => (d.date === day.date ? { ...d, hint } : d)))
-                  }
-                  onEntryChange={setEntryState}
-                  onEntryRemove={(id) =>
-                    setDays((prev) =>
-                      prev.map((d) =>
-                        d.date === day.date
-                          ? { ...d, entries: d.entries.filter((e) => e.id !== id) }
-                          : d,
-                      ),
-                    )
-                  }
-                  onEntryAdd={() =>
-                    setDays((prev) =>
-                      prev.map((d) =>
-                        d.date === day.date
-                          ? {
-                              ...d,
-                              entries: [
-                                ...d.entries,
-                                {
-                                  id: uid(),
-                                  date: d.date,
-                                  text: "",
-                                  project: settings.fallbackProject,
-                                  activity: settings.fallbackActivity,
-                                  hours: d.entries.length
-                                    ? 1
-                                    : remainingHours(d, settings.hoursPerDay) || settings.hoursPerDay,
-                                  source: "manual" as const,
-                                  commitShas: [],
-                                  status: "idle" as const,
-                                },
-                              ],
-                            }
-                          : d,
-                      ),
-                    )
-                  }
-                  onFillDay={() => generate(day.date)}
-                  hoursPerDay={settings.hoursPerDay}
+                  onRerun={(c) => void execute(run?.prompt ?? "Fill these days", c)}
+                  onDismiss={startOver}
                 />
-              ))}
-            </div>
-          )}
-        </div>
-      </main>
 
-      <SettingsDrawer
-        open={settingsOpen}
-        onClose={() => setSettingsOpen(false)}
+                {days.length > 0 && (
+                  <StatStrip
+                    items={[
+                      { icon: <Layers className="size-3" />, label: "days", value: days.length },
+                      { icon: <GitCommitHorizontal className="size-3" />, label: "commits", value: commitDays },
+                      { icon: <Sparkles className="size-3" />, label: "gaps", value: gapDays },
+                      { icon: <CheckCircle2 className="size-3" />, label: "filled", value: coveredDays },
+                      { icon: <CalendarRange className="size-3" />, label: "entries", value: pushable.length },
+                      { icon: <Clock3 className="size-3" />, label: "hours", value: totalHours, format: formatHours },
+                    ]}
+                  />
+                )}
+
+                <div className="space-y-3">
+                  {days.map((day) => (
+                    <DayCard
+                      key={day.date}
+                      day={day}
+                      projects={projects}
+                      activities={activities}
+                      minWords={minWords}
+                      minTags={minTags}
+                      hoursPerDay={hoursPerDay}
+                      busy={busy !== null}
+                      writing={writing.has(day.date)}
+                      onToggleDay={onToggleDay}
+                      onEntryChange={onEntryChange}
+                      onEntryRemove={onEntryRemove}
+                      onEntryAdd={onEntryAdd}
+                      onHintChange={onHintChange}
+                      onFillDay={onFillDay}
+                    />
+                  ))}
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </main>
+      )}
+
+      <PushDock
+        show={days.length > 0 && busy !== "run"}
+        entries={pushable.length}
+        hours={totalHours}
+        invalid={invalidCount}
+        stale={staleDays}
+        maxDelay={maxDelay}
+        dryRun={dryRun}
+        onDryRun={setDryRun}
+        onRefresh={ready ? refreshExisting : undefined}
+        refreshing={busy === "existing"}
+        onPush={push}
+        pushing={busy === "push"}
+        progress={progress}
+        justPushed={justPushed}
+        canPush={pushable.length > invalidCount && busy === null}
+        reason={!ready ? "Connect Emit first" : pushable.length ? undefined : "Nothing left to push"}
+      />
+
+      <ControlCenter
+        open={center.open}
+        tab={center.tab}
+        onTab={(tab) => setCenter((c) => ({ ...c, tab }))}
+        onClose={() => setCenter((c) => ({ ...c, open: false }))}
         settings={settings}
         patch={patch}
         profile={profile}
         profileError={profileError}
         repos={repos}
-        onReposLoaded={(list, provider) =>
-          persistRepos([...repos.filter((r) => r.provider !== provider), ...list])
-        }
+        onReposLoaded={(list, provider) => persistRepos([...repos.filter((r) => r.provider !== provider), ...list])}
         notify={notify}
+        projects={projects}
+        activities={activities}
+        onReplayTutorial={() => {
+          setCenter((c) => ({ ...c, open: false }));
+          setTourOpen(true);
+        }}
       />
 
-      <Toaster toasts={toasts} />
-    </div>
+      <AnimatePresence>
+        {tour && (
+          <Onboarding
+            instant={tourOpen === null}
+            role={settings.role}
+            onRole={(r) => patch({ role: r })}
+            onDone={() => {
+              setTourOpen(false);
+              patch({ onboarded: true, role: settings.role ?? "developer" });
+              setTimeout(() => composer.current?.focus(), 400);
+            }}
+            onConnect={() => openCenter("connections")}
+          />
+        )}
+      </AnimatePresence>
+    </MotionConfig>
   );
 }
 
-function StatusPill({ ok, label }: { ok: boolean; label: string }) {
+/* ------------------------------------------------------------------- parts */
+
+function TopBar({
+  aiOn,
+  role,
+  ready,
+  team,
+  repos,
+  codeFirst,
+  onOpen,
+  onHome,
+}: {
+  aiOn: boolean;
+  role: Role | null;
+  ready: boolean;
+  team?: string;
+  repos: Repo[];
+  codeFirst: boolean;
+  onOpen: (t: CenterTab) => void;
+  onHome: () => void;
+}) {
+  const providers = Array.from(new Set(repos.map((r) => r.provider)));
   return (
-    <span
-      className={cx(
-        "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-medium",
-        ok
-          ? "border-emerald-500/25 bg-emerald-500/10 text-emerald-300"
-          : "border-white/10 bg-white/3 text-slate-500",
-      )}
+    <header className="pointer-events-none fixed inset-x-0 top-0 z-50 flex items-center justify-between px-3 pt-3 sm:px-5">
+      <button
+        type="button"
+        onClick={onHome}
+        className="glass-float pointer-events-auto flex h-11 items-center gap-2.5 rounded-full pl-1.5 pr-4 transition-transform duration-300 active:scale-95"
+      >
+        <Logo className="size-8 rounded-full" live={aiOn} />
+        <span className="text-[13px] font-semibold tracking-[-0.01em]">Emitation</span>
+      </button>
+
+      <div className="glass-float pointer-events-auto flex h-11 items-center gap-0.5 rounded-full p-1">
+        <button
+          type="button"
+          onClick={() => onOpen("look")}
+          className="flex h-9 items-center gap-1.5 rounded-full px-3 text-xs font-medium text-label-2 transition hover:bg-white/[0.08] hover:text-label"
+          title="Change role"
+        >
+          {role ? ROLE_ICON[role] : <Sparkles className="size-4" />}
+          <span className="hidden sm:inline">{roleOf(role).short}</span>
+        </button>
+        {codeFirst && (
+          <button
+            type="button"
+            onClick={() => onOpen("sources")}
+            className="hidden h-9 items-center gap-1.5 rounded-full px-3 text-xs text-label-2 transition hover:bg-white/[0.08] hover:text-label sm:flex"
+            title="Repositories"
+          >
+            {providers.length ? providers.map((p) => <ProviderMark key={p} provider={p} className="size-3.5" />) : <GitCommitHorizontal className="size-4" />}
+            <span>{repos.length || "No"} repos</span>
+          </button>
+        )}
+        <button
+          type="button"
+          onClick={() => onOpen("connections")}
+          className="flex h-9 items-center gap-2 rounded-full px-3 text-xs text-label-2 transition hover:bg-white/[0.08] hover:text-label"
+          title={ready ? `Connected to ${team}` : "Connect Emit"}
+        >
+          <span className="relative flex size-2">
+            {ready && <span className="absolute inset-0 animate-ping rounded-full bg-emerald-400/60 [animation-duration:2.5s]" />}
+            <span className={cx("relative size-2 rounded-full", ready ? "bg-emerald-400" : "bg-amber-300")} />
+          </span>
+          <span className="hidden max-w-[140px] truncate sm:inline">{ready ? team : "Connect Emit"}</span>
+        </button>
+        <button
+          type="button"
+          onClick={() => onOpen(codeFirst ? "sources" : "defaults")}
+          className="grid size-9 place-items-center rounded-full text-label-2 transition hover:bg-white/[0.08] hover:text-label"
+          aria-label="Control Center"
+          title="Control Center"
+        >
+          <SlidersHorizontal className="size-4" />
+        </button>
+      </div>
+    </header>
+  );
+}
+
+function Pill({
+  children,
+  onClick,
+  index,
+  pinned,
+}: {
+  children: React.ReactNode;
+  onClick: () => void;
+  index: number;
+  pinned: boolean;
+}) {
+  const ref = useSpotlight<HTMLButtonElement>();
+  return (
+    <motion.button
+      ref={ref}
+      type="button"
+      onClick={onClick}
+      initial={{ opacity: 0, y: 10, scale: 0.92, filter: "blur(6px)" }}
+      animate={{ opacity: 1, y: 0, scale: 1, filter: "blur(0px)", transition: { ...spring.smooth, delay: 0.25 + index * 0.05 } }}
+      exit={{ opacity: 0, scale: 0.9, filter: "blur(6px)", transition: { duration: 0.2 } }}
+      whileHover={{ y: -2 }}
+      whileTap={{ scale: 0.96 }}
+      className="spotlight glass-lite flex h-9 items-center gap-1.5 overflow-hidden rounded-full px-3.5 text-[12.5px] font-medium text-label-2 transition-colors duration-200 hover:border-white/15 hover:text-label"
     >
-      <span className={cx("size-1.5 rounded-full", ok ? "bg-emerald-400" : "bg-slate-600")} />
-      {label}
-    </span>
+      {pinned ? <Pin className="size-3 text-accent" /> : <Sparkles className="size-3 text-accent" />}
+      {children}
+    </motion.button>
   );
 }
 
-function Stat({ icon, label, value }: { icon: React.ReactNode; label: string; value: string }) {
+function ContextCard({
+  icon,
+  title,
+  body,
+  action,
+  onClick,
+  tone,
+}: {
+  icon: React.ReactNode;
+  title: string;
+  body: React.ReactNode;
+  action: string;
+  onClick: () => void;
+  tone?: "ok";
+}) {
+  const ref = useSpotlight<HTMLButtonElement>();
   return (
-    <div className="flex items-center gap-2">
-      <span className="text-slate-600">{icon}</span>
-      <span className="font-mono text-sm text-slate-100">{value}</span>
-      <span className="text-xs text-slate-500">{label}</span>
-    </div>
+    <button
+      ref={ref}
+      type="button"
+      onClick={onClick}
+      className="spotlight glass-lite group flex items-start gap-3.5 rounded-[22px] p-4 text-left transition-[border-color,transform] duration-300 hover:border-white/14 active:scale-[0.985]"
+    >
+      <span
+        className={cx(
+          "grid size-9 shrink-0 place-items-center rounded-[12px] border border-white/10",
+          tone === "ok" ? "bg-emerald-400/10 text-emerald-300" : "bg-white/[0.06] text-accent",
+        )}
+      >
+        {icon}
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="block text-[13.5px] font-medium tracking-[-0.01em] text-label">{title}</span>
+        <span className="mt-1 block text-xs leading-relaxed text-label-3">{body}</span>
+      </span>
+      <span className="mt-0.5 flex shrink-0 items-center gap-1 text-xs font-medium text-label-3 transition-colors group-hover:text-label">
+        {action}
+        <ArrowRight className="size-3.5 transition-transform duration-300 group-hover:translate-x-0.5" />
+      </span>
+    </button>
   );
 }

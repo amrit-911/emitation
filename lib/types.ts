@@ -30,12 +30,19 @@ export type EmitProfile = {
 };
 
 export type RepoProvider = "github" | "gitlab" | "bitbucket";
+/** Where a commit came from — a code host, or a folder read locally in the browser. */
+export type CommitSource = RepoProvider | "local";
+
+/** Who is using the app. Shapes examples, pills and whether code hosts are front and centre. */
+export type Role = "developer" | "tester" | "ba";
+
+export type AccentId = "intelligence" | "ocean" | "mint" | "sunset" | "rose";
 
 export type Commit = {
   sha: string;
   /** Matches Repo.id — used for repoMap lookups and per-day grouping. */
   repoId: string;
-  provider: RepoProvider;
+  provider: CommitSource;
   /** owner/repo (GitHub), namespace/path (GitLab), workspace/slug (Bitbucket). */
   repo: string;
   message: string;
@@ -114,20 +121,68 @@ export type Settings = {
   weekend: WeekendPolicy;
   fallbackProject: string;
   fallbackActivity: string;
+  /** Standing writing-style guidance handed to the writer on every run. */
   aiPrompt: string;
-  /**
-   * Free-form instructions for the custom run — unlike the gap filler it sees
-   * every commit with its authored date and decides per day how to split bursts,
-   * summarise, tag, @mention or skip.
-   */
-  customPrompt: string;
-  /** Rewrite terse commit messages ("fix", "wip") into a real sentence via AI. */
-  aiSummarizeCommits: boolean;
   /** When a commit day is preceded by empty gap days, spread its commits back across them. */
   spreadCommits: boolean;
   /** How many empty days back a commit burst is allowed to spread into. */
   spreadMaxDays: number;
+  /** Null until picked during onboarding. */
+  role: Role | null;
+  /** The animated tutorial has been seen (or skipped). */
+  onboarded: boolean;
+  accent: AccentId;
+  reduceMotion: boolean;
+  /** User-pinned prompts, shown as pills next to the role's built-in ones. */
+  savedPrompts: string[];
 };
+
+/** What the planner understood from a prompt — the run's knobs, all visible and editable. */
+export type RunConfig = {
+  from: string;
+  to: string;
+  weekend: WeekendPolicy;
+  hoursPerDay: number;
+  spreadCommits: boolean;
+  spreadMaxDays: number;
+};
+
+export type Plan = {
+  mode: "build" | "refine";
+  config: RunConfig;
+  useCommits: boolean;
+  /** Repos to pull from; empty means "whatever is selected". */
+  repoIds: string[];
+  summary: string;
+};
+
+/** A folder (or loose file) the user attached, read locally in the browser. */
+export type FolderAttachment = {
+  kind: "folder";
+  id: string;
+  name: string;
+  fileCount: number;
+  /** Commits recovered from .git reflogs — the user's own, with real timestamps. */
+  commits: Commit[];
+  remote?: string;
+  branch?: string;
+  /** A loaded repo whose remote matches this folder, so its tag mapping applies. */
+  matchedRepoId?: string;
+  manifest?: string;
+  readme?: string;
+  /** Recently modified files, newest first. */
+  files: { path: string; modified: number }[];
+};
+
+export type FileAttachment = {
+  kind: "file";
+  id: string;
+  name: string;
+  size: number;
+  text: string;
+};
+
+export type Attachment = FolderAttachment | FileAttachment;
 
 export type EntryStatus = "idle" | "queued" | "sending" | "done" | "error";
 export type EntrySource = "commits" | "ai" | "custom" | "manual";

@@ -18,6 +18,7 @@ type DayRequest = {
 
 type Body = {
   prompt?: string;
+  persona?: string;
   projects?: string[];
   activities?: string[];
   fallbackProject?: string;
@@ -83,7 +84,7 @@ export async function POST(req: Request) {
   const model = google(process.env.GEMINI_MODEL || "gemini-2.5-flash");
 
   const system = [
-    "You write daily timesheet entries for a software engineer on the Emit time-tracking tool.",
+    `You write daily timesheet entries for a ${body.persona || "software engineer"} on the Emit time-tracking tool.`,
     "Rules:",
     "- Every entry needs exactly one project tag and one activity tag, both copied verbatim from the allowed lists.",
     "- `text` is plain prose with NO hashtags, NO dates, NO 'today'. Keep it under 18 words.",

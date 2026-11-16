@@ -17,6 +17,8 @@ type DayRequest = {
   targetHours: number;
   alreadyLogged: string[];
   hint?: string;
+  /** Unsent entries currently shown for the day. */
+  draft?: { text: string; project: string; activity: string; hours: number; mentions: string[] }[];
 };
 
 type CommitRequest = {
@@ -31,6 +33,12 @@ type CommitRequest = {
 
 type Body = {
   prompt?: string;
+  /** Who the timesheet belongs to, e.g. "business analyst". */
+  persona?: string;
+  /** Standing writing-style guidance from Defaults. */
+  style?: string;
+  /** Summary of attached folders/files, already scoped to the window. */
+  context?: string;
   projects?: string[];
   activities?: string[];
   fallbackProject?: string;
@@ -117,7 +125,7 @@ export async function POST(req: Request) {
     : "If the user says nothing about it: attribute each commit to the day it was authored.";
 
   const system = [
-    "You fill a software engineer's timesheet on the Emit time-tracking tool.",
+    `You fill a ${body.persona || "software engineer"}'s timesheet on the Emit time-tracking tool.`,
     "The USER INSTRUCTIONS are the most important input. They override every default below —",
     "follow them for how commits map to days, how work is summarised, which tags are used,",
     "who gets @mentioned, how hours are split, and which days are left out.",
@@ -139,7 +147,16 @@ export async function POST(req: Request) {
     "- `mentions` holds @handles only when the instructions ask to tag someone on that day or kind of work.",
     "  Use handles exactly as the user wrote them. Otherwise leave it empty.",
     "- Vary the phrasing across days. Never repeat a sentence.",
-  ].join("\n");
+    "- A day's `draft` is what the user currently sees for it. Your entries REPLACE the draft. When the",
+    "  instructions adjust or rewrite existing work (shorten, retag, add a meeting, change hours), start from",
+    "  the draft and keep every entry, tag, hour and @mention the instructions don't ask you to change.",
+    "  A draft built from raw commit messages is only a starting point for wording.",
+    "- ATTACHED CONTEXT (folders, notes) is evidence of what the user worked on. Use it to make entries",
+    "  specific — file names hint at the feature or document — but never quote file paths verbatim.",
+    body.style?.trim() ? `- House style: ${body.style.trim()}` : "",
+  ]
+    .filter((l, i, all) => l !== "" || all[i - 1] !== "")
+    .join("\n");
 
   const prompt = [
     "USER INSTRUCTIONS:",
@@ -149,6 +166,8 @@ export async function POST(req: Request) {
     `Allowed project tags: ${projects.join(", ")}`,
     `Allowed activity tags: ${activities.join(", ")}`,
     "",
+    body.context?.trim() ? `ATTACHED CONTEXT:\n${body.context.trim().slice(0, 14_000)}` : "",
+    "",
     "DAYS:",
     JSON.stringify(
       days.map((d) => ({
@@ -157,6 +176,7 @@ export async function POST(req: Request) {
         targetHours: d.targetHours,
         alreadyLogged: d.alreadyLogged.length ? d.alreadyLogged : undefined,
         note: d.hint || undefined,
+        draft: d.draft?.length ? d.draft : undefined,
       })),
       null,
       2,

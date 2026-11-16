@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { DEFAULT_PROFILE_JSON } from "./default-profile";
 import type { Settings } from "./types";
 
@@ -34,10 +34,13 @@ export const DEFAULT_SETTINGS: Settings = {
   aiPrompt:
     "Write like a senior full-stack engineer logging their day: concrete, specific, no fluff. " +
     "One short sentence per entry, lowercase start, no hashtags in the text itself.",
-  customPrompt: "",
-  aiSummarizeCommits: true,
   spreadCommits: true,
   spreadMaxDays: 3,
+  role: null,
+  onboarded: false,
+  accent: "intelligence",
+  reduceMotion: false,
+  savedPrompts: [],
 };
 
 export function loadSettings(): Settings {
@@ -65,16 +68,20 @@ export function useSettings() {
   const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS);
   const [hydrated, setHydrated] = useState(false);
 
+  // localStorage only exists after mount; reading it here is syncing with an external store.
   useEffect(() => {
+    /* eslint-disable react-hooks/set-state-in-effect */
     setSettings(loadSettings());
     setHydrated(true);
+    /* eslint-enable react-hooks/set-state-in-effect */
   }, []);
 
   useEffect(() => {
     if (hydrated) saveSettings(settings);
   }, [settings, hydrated]);
 
-  const patch = (p: Partial<Settings>) => setSettings((s) => ({ ...s, ...p }));
+  // Stable, so memoised children that receive it don't re-render on every keystroke.
+  const patch = useCallback((p: Partial<Settings>) => setSettings((s) => ({ ...s, ...p })), []);
 
   return { settings, setSettings, patch, hydrated };
 }

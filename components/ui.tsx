@@ -3,13 +3,23 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { createPortal } from "react-dom";
+import { AnimatePresence, motion } from "motion/react";
 import { Check, ChevronDown, Search, X } from "lucide-react";
 
 export function cx(...parts: (string | false | null | undefined)[]) {
   return parts.filter(Boolean).join(" ");
 }
 
-/** lucide dropped brand marks in v1, so the GitHub logo lives here. */
+/** Apple-ish springs, shared so everything moves with the same physics. */
+export const spring = {
+  snappy: { type: "spring", bounce: 0.18, visualDuration: 0.32 },
+  smooth: { type: "spring", bounce: 0.12, visualDuration: 0.5 },
+  bouncy: { type: "spring", bounce: 0.32, visualDuration: 0.45 },
+} as const;
+
+/* ---------------------------------------------------------------- marks */
+
+/** lucide dropped brand marks in v1, so the logos live here. */
 export function GithubMark({ className }: { className?: string }) {
   return (
     <svg viewBox="0 0 16 16" fill="currentColor" aria-hidden className={cx("size-4", className)}>
@@ -18,7 +28,6 @@ export function GithubMark({ className }: { className?: string }) {
   );
 }
 
-/** Bitbucket's mark, since lucide only ships generic icons. */
 export function BitbucketMark({ className }: { className?: string }) {
   return (
     <svg viewBox="0 0 16 16" fill="currentColor" aria-hidden className={cx("size-4", className)}>
@@ -27,7 +36,6 @@ export function BitbucketMark({ className }: { className?: string }) {
   );
 }
 
-/** GitLab's tanuki mark, since lucide only ships generic icons. */
 export function GitlabMark({ className }: { className?: string }) {
   return (
     <svg viewBox="0 0 16 16" fill="currentColor" aria-hidden className={cx("size-4", className)}>
@@ -42,65 +50,134 @@ export function GitlabMark({ className }: { className?: string }) {
   );
 }
 
-/* ---------------------------------------------------------------- button */
+/** The Emitation mark: a spark inside a soft rounded square. */
+export function Logo({ className, live }: { className?: string; live?: boolean }) {
+  return (
+    <span
+      className={cx(
+        "relative grid place-items-center overflow-hidden rounded-[10px] shadow-[0_8px_24px_-8px_var(--accent)]",
+        className,
+      )}
+      style={{ background: "var(--accent-grad)" }}
+    >
+      {live && <span className="orb absolute inset-0 rounded-none opacity-60 after:hidden" />}
+      <svg viewBox="0 0 24 24" className="relative size-[58%] text-white" fill="currentColor" aria-hidden>
+        <path d="M12 2.5c.4 4.9 2.6 7.1 7.5 7.5-4.9.4-7.1 2.6-7.5 7.5-.4-4.9-2.6-7.1-7.5-7.5 4.9-.4 7.1-2.6 7.5-7.5Z" />
+        <path d="M18.5 15c.18 2.1 1.1 3.02 3.2 3.2-2.1.18-3.02 1.1-3.2 3.2-.18-2.1-1.1-3.02-3.2-3.2 2.1-.18 3.02-1.1 3.2-3.2Z" opacity={0.75} />
+      </svg>
+    </span>
+  );
+}
+
+/* --------------------------------------------------------------- hooks */
+
+/** Feeds --mx/--my to a `.spotlight` element so its light follows the pointer. */
+export function useSpotlight<T extends HTMLElement>() {
+  const ref = useRef<T>(null);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    let frame = 0;
+    const move = (e: PointerEvent) => {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => {
+        const r = el.getBoundingClientRect();
+        el.style.setProperty("--mx", `${e.clientX - r.left}px`);
+        el.style.setProperty("--my", `${e.clientY - r.top}px`);
+      });
+    };
+    const enter = () => el.style.setProperty("--spot", "1");
+    const leave = () => el.style.setProperty("--spot", "0");
+    el.addEventListener("pointermove", move);
+    el.addEventListener("pointerenter", enter);
+    el.addEventListener("pointerleave", leave);
+    return () => {
+      cancelAnimationFrame(frame);
+      el.removeEventListener("pointermove", move);
+      el.removeEventListener("pointerenter", enter);
+      el.removeEventListener("pointerleave", leave);
+    };
+  }, []);
+  return ref;
+}
+
+/* --------------------------------------------------------------- button */
 
 type ButtonProps = React.ButtonHTMLAttributes<HTMLButtonElement> & {
-  variant?: "primary" | "ghost" | "outline" | "danger" | "subtle";
-  size?: "sm" | "md";
+  variant?: "primary" | "glass" | "ghost" | "danger" | "plain";
+  size?: "xs" | "sm" | "md" | "lg" | "icon" | "icon-sm";
   loading?: boolean;
 };
 
 export function Button({
-  variant = "outline",
+  variant = "glass",
   size = "md",
   loading,
   className,
   children,
   disabled,
+  type = "button",
   ...rest
 }: ButtonProps) {
   const base =
-    "inline-flex items-center justify-center gap-2 rounded-lg font-medium transition-all disabled:opacity-45 disabled:cursor-not-allowed select-none whitespace-nowrap";
-  const sizes = { sm: "h-8 px-2.5 text-xs", md: "h-10 px-4 text-sm" }[size];
+    "relative inline-flex select-none items-center justify-center gap-1.5 whitespace-nowrap font-medium tracking-[-0.01em] transition-[transform,background-color,border-color,color,box-shadow,opacity] duration-200 ease-apple active:scale-[0.965] disabled:pointer-events-none disabled:opacity-40";
+  const sizes = {
+    xs: "h-7 rounded-full px-2.5 text-[11.5px]",
+    sm: "h-8 rounded-full px-3 text-xs",
+    md: "h-10 rounded-full px-4 text-[13px]",
+    lg: "h-12 rounded-full px-6 text-sm",
+    icon: "size-10 rounded-full",
+    "icon-sm": "size-8 rounded-full",
+  }[size];
   const variants = {
     primary:
-      "bg-brand-600 text-white shadow-[0_6px_20px_-8px_var(--color-brand-500)] hover:bg-brand-500 active:translate-y-px",
-    outline:
-      "border border-white/10 bg-white/[0.03] text-slate-200 hover:bg-white/[0.07] hover:border-white/20",
-    ghost: "text-slate-400 hover:text-slate-100 hover:bg-white/[0.06]",
-    subtle: "bg-white/[0.06] text-slate-200 hover:bg-white/10",
-    danger: "border border-rose-500/30 bg-rose-500/10 text-rose-300 hover:bg-rose-500/20",
+      "text-white shadow-[0_10px_30px_-12px_var(--accent),inset_0_1px_0_rgba(255,255,255,0.35)] hover:brightness-110 [background:var(--accent-grad)] [text-shadow:0_1px_1px_rgba(0,0,0,0.18)]",
+    glass:
+      "border border-white/10 bg-white/[0.06] text-label shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] hover:border-white/16 hover:bg-white/[0.1]",
+    ghost: "text-label-2 hover:bg-white/[0.07] hover:text-label",
+    danger: "border border-rose-400/25 bg-rose-500/10 text-rose-200 hover:bg-rose-500/20",
+    plain: "",
   }[variant];
 
   return (
-    <button className={cx(base, sizes, variants, className)} disabled={disabled || loading} {...rest}>
-      {loading && (
-        <span className="size-3.5 animate-spin rounded-full border-2 border-current border-t-transparent" />
-      )}
+    <button
+      type={type}
+      className={cx(base, sizes, variants, className)}
+      disabled={disabled || loading}
+      {...rest}
+    >
+      {loading && <Spinner className="size-3.5" />}
       {children}
     </button>
   );
 }
 
-/* ----------------------------------------------------------------- cards */
+export function Spinner({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" className={cx("size-4 animate-spin", className)} aria-hidden>
+      <circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" strokeOpacity="0.2" strokeWidth="2.5" />
+      <path d="M21 12a9 9 0 0 0-9-9" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" />
+    </svg>
+  );
+}
 
-export function Card({
+/** The AI's "thinking" mark: a small breathing orb of the intelligence gradient. */
+export function Orb({ className }: { className?: string }) {
+  return <span className={cx("orb inline-block size-4 shrink-0", className)} aria-hidden />;
+}
+
+/* --------------------------------------------------------------- panels */
+
+export function Panel({
   className,
   children,
+  as: Tag = "div",
 }: {
   className?: string;
   children: ReactNode;
+  as?: "div" | "section" | "aside";
 }) {
-  return (
-    <div
-      className={cx(
-        "rounded-2xl border border-white/[0.07] bg-ink-900/70 backdrop-blur-xl shadow-[0_20px_60px_-40px_rgba(0,0,0,0.9)]",
-        className,
-      )}
-    >
-      {children}
-    </div>
-  );
+  return <Tag className={cx("glass rim rounded-[28px]", className)}>{children}</Tag>;
 }
 
 export function SectionTitle({
@@ -111,16 +188,16 @@ export function SectionTitle({
 }: {
   icon?: ReactNode;
   title: string;
-  hint?: string;
+  hint?: ReactNode;
   right?: ReactNode;
 }) {
   return (
     <div className="flex items-start justify-between gap-3">
-      <div className="flex items-start gap-2.5">
-        {icon && <span className="mt-0.5 text-brand-400">{icon}</span>}
-        <div>
-          <h2 className="text-sm font-semibold tracking-wide text-slate-100">{title}</h2>
-          {hint && <p className="mt-0.5 text-xs text-slate-500">{hint}</p>}
+      <div className="flex min-w-0 items-start gap-2.5">
+        {icon && <span className="mt-px text-accent">{icon}</span>}
+        <div className="min-w-0">
+          <h3 className="text-[13px] font-semibold tracking-[-0.01em] text-label">{title}</h3>
+          {hint && <p className="mt-0.5 text-xs leading-relaxed text-label-3">{hint}</p>}
         </div>
       </div>
       {right}
@@ -128,21 +205,18 @@ export function SectionTitle({
   );
 }
 
-/* ---------------------------------------------------------------- inputs */
+/* --------------------------------------------------------------- inputs */
 
 export function Label({ children, htmlFor }: { children: ReactNode; htmlFor?: string }) {
   return (
-    <label
-      htmlFor={htmlFor}
-      className="mb-1.5 block text-[11px] font-medium uppercase tracking-wider text-slate-500"
-    >
+    <label htmlFor={htmlFor} className="mb-1.5 block text-[11px] font-medium tracking-wide text-label-3">
       {children}
     </label>
   );
 }
 
-const fieldCls =
-  "w-full rounded-lg border border-white/10 bg-ink-850/80 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-600 outline-none transition focus:border-brand-500/70 focus:ring-2 focus:ring-brand-500/20";
+export const fieldCls =
+  "w-full rounded-[12px] border border-white/[0.08] bg-black/25 px-3 py-2 text-[13px] text-label placeholder:text-label-4 outline-none transition-[border-color,box-shadow,background-color] duration-200 hover:border-white/14 focus:border-[color-mix(in_oklab,var(--accent)_70%,transparent)] focus:bg-black/35 focus:shadow-[0_0_0_4px_color-mix(in_oklab,var(--accent)_16%,transparent)] disabled:opacity-60";
 
 export function Input({ className, ...rest }: React.InputHTMLAttributes<HTMLInputElement>) {
   return <input className={cx(fieldCls, className)} {...rest} />;
@@ -150,9 +224,60 @@ export function Input({ className, ...rest }: React.InputHTMLAttributes<HTMLInpu
 
 export function Textarea({
   className,
+  autoGrow,
   ...rest
-}: React.TextareaHTMLAttributes<HTMLTextAreaElement>) {
-  return <textarea className={cx(fieldCls, "resize-y leading-relaxed", className)} {...rest} />;
+}: React.TextareaHTMLAttributes<HTMLTextAreaElement> & { autoGrow?: boolean }) {
+  const ref = useRef<HTMLTextAreaElement>(null);
+  useEffect(() => {
+    const el = ref.current;
+    if (!autoGrow || !el) return;
+    el.style.height = "auto";
+    el.style.height = `${el.scrollHeight + 2}px`;
+  }, [autoGrow, rest.value]);
+  return (
+    <textarea
+      ref={ref}
+      className={cx(fieldCls, autoGrow ? "resize-none overflow-hidden" : "resize-y", "leading-relaxed", className)}
+      {...rest}
+    />
+  );
+}
+
+export function Switch({
+  checked,
+  onChange,
+  label,
+  size = "md",
+}: {
+  checked: boolean;
+  onChange: (v: boolean) => void;
+  label?: string;
+  size?: "sm" | "md";
+}) {
+  const dims = size === "sm" ? { w: 30, h: 18, k: 14 } : { w: 40, h: 24, k: 20 };
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      aria-label={label}
+      onClick={() => onChange(!checked)}
+      className={cx(
+        "relative shrink-0 rounded-full p-[2px] transition-colors duration-300 ease-apple",
+        checked ? "bg-accent" : "bg-white/14",
+      )}
+      style={{ width: dims.w, height: dims.h }}
+    >
+      <span
+        className="switch-knob block rounded-full bg-white shadow-[0_2px_6px_rgba(0,0,0,0.35)]"
+        style={{
+          width: dims.k,
+          height: dims.k,
+          transform: `translateX(${checked ? dims.w - dims.k - 4 : 0}px)`,
+        }}
+      />
+    </button>
+  );
 }
 
 export function Toggle({
@@ -167,29 +292,69 @@ export function Toggle({
   hint?: string;
 }) {
   return (
-    <button
-      type="button"
-      onClick={() => onChange(!checked)}
-      className="flex w-full items-center justify-between gap-3 rounded-lg px-1 py-1.5 text-left"
+    <div className="flex items-center justify-between gap-4 py-2">
+      <div className="min-w-0">
+        <p className="text-[13px] text-label">{label}</p>
+        {hint && <p className="mt-0.5 text-xs leading-relaxed text-label-3">{hint}</p>}
+      </div>
+      <Switch checked={checked} onChange={onChange} label={label} />
+    </div>
+  );
+}
+
+/** iOS-style segmented control; the selection pill glides between options. */
+export function Segmented<T extends string>({
+  value,
+  options,
+  onChange,
+  className,
+  size = "md",
+}: {
+  value: T;
+  options: { id: T; label: ReactNode; icon?: ReactNode }[];
+  onChange: (v: T) => void;
+  className?: string;
+  size?: "sm" | "md";
+}) {
+  const group = useId();
+  return (
+    <div
+      className={cx(
+        "relative flex rounded-full border border-white/[0.07] bg-black/30 p-1",
+        className,
+      )}
+      role="tablist"
     >
-      <span>
-        <span className="block text-sm text-slate-200">{label}</span>
-        {hint && <span className="block text-xs text-slate-500">{hint}</span>}
-      </span>
-      <span
-        className={cx(
-          "relative h-5 w-9 shrink-0 rounded-full transition-colors",
-          checked ? "bg-brand-500" : "bg-white/12",
-        )}
-      >
-        <span
-          className={cx(
-            "absolute top-0.5 size-4 rounded-full bg-white transition-all",
-            checked ? "left-[18px]" : "left-0.5",
-          )}
-        />
-      </span>
-    </button>
+      {options.map((o) => {
+        const active = o.id === value;
+        return (
+          <button
+            key={o.id}
+            type="button"
+            role="tab"
+            aria-selected={active}
+            onClick={() => onChange(o.id)}
+            className={cx(
+              "relative flex flex-1 items-center justify-center gap-1.5 rounded-full font-medium transition-colors duration-200",
+              size === "sm" ? "h-7 px-2.5 text-[11.5px]" : "h-8 px-3 text-xs",
+              active ? "text-label" : "text-label-3 hover:text-label-2",
+            )}
+          >
+            {active && (
+              <motion.span
+                layoutId={`seg-${group}`}
+                transition={spring.snappy}
+                className="absolute inset-0 rounded-full border border-white/10 bg-white/[0.12] shadow-[0_4px_14px_-4px_rgba(0,0,0,0.6),inset_0_1px_0_rgba(255,255,255,0.12)]"
+              />
+            )}
+            <span className="relative flex items-center gap-1.5">
+              {o.icon}
+              {o.label}
+            </span>
+          </button>
+        );
+      })}
+    </div>
   );
 }
 
@@ -199,27 +364,35 @@ export function Badge({
   className,
 }: {
   children: ReactNode;
-  tone?: "slate" | "brand" | "green" | "amber" | "rose" | "cyan";
+  tone?: "slate" | "accent" | "green" | "amber" | "rose" | "cyan";
   className?: string;
 }) {
   const tones = {
-    slate: "bg-white/[0.06] text-slate-400 border-white/10",
-    brand: "bg-brand-500/15 text-brand-200 border-brand-500/25",
-    green: "bg-emerald-500/12 text-emerald-300 border-emerald-500/25",
-    amber: "bg-amber-500/12 text-amber-300 border-amber-500/25",
-    rose: "bg-rose-500/12 text-rose-300 border-rose-500/25",
-    cyan: "bg-cyan-500/12 text-cyan-300 border-cyan-500/25",
+    slate: "bg-white/[0.06] text-label-2 border-white/10",
+    accent: "bg-[color-mix(in_oklab,var(--accent)_16%,transparent)] text-[color-mix(in_oklab,var(--accent)_70%,white)] border-[color-mix(in_oklab,var(--accent)_30%,transparent)]",
+    green: "bg-emerald-400/10 text-emerald-200 border-emerald-400/20",
+    amber: "bg-amber-400/10 text-amber-200 border-amber-400/20",
+    rose: "bg-rose-400/10 text-rose-200 border-rose-400/20",
+    cyan: "bg-sky-400/10 text-sky-200 border-sky-400/20",
   }[tone];
   return (
     <span
       className={cx(
-        "inline-flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-[11px] font-medium",
+        "inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium",
         tones,
         className,
       )}
     >
       {children}
     </span>
+  );
+}
+
+export function Kbd({ children }: { children: ReactNode }) {
+  return (
+    <kbd className="inline-flex h-5 min-w-5 items-center justify-center rounded-md border border-white/10 bg-white/[0.06] px-1 font-sans text-[10.5px] font-medium text-label-3">
+      {children}
+    </kbd>
   );
 }
 
@@ -230,7 +403,7 @@ export function TagPicker({
   options,
   onChange,
   placeholder = "Pick a tag",
-  tone = "brand",
+  tone = "accent",
   disabled,
   className,
 }: {
@@ -238,27 +411,27 @@ export function TagPicker({
   options: string[];
   onChange: (v: string) => void;
   placeholder?: string;
-  tone?: "brand" | "cyan";
+  tone?: "accent" | "cyan";
   disabled?: boolean;
   className?: string;
 }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
+  const [cursor, setCursor] = useState(0);
   const [pos, setPos] = useState<{
     left: number;
     width: number;
     top?: number;
     bottom?: number;
     maxHeight: number;
+    flip: boolean;
   } | null>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
+  const listRef = useRef<HTMLDivElement>(null);
   const id = useId();
 
-  /**
-   * The panel is portalled to <body> so a narrow sidebar or a card can't clip
-   * it; position is measured off the trigger and flipped up near the bottom.
-   */
+  /** Portalled to <body> so cards can't clip it; flips up near the bottom edge. */
   const place = useCallback(() => {
     const r = triggerRef.current?.getBoundingClientRect();
     if (!r) return;
@@ -267,13 +440,14 @@ export function TagPicker({
     const left = Math.max(margin, Math.min(r.left, window.innerWidth - width - margin));
     const below = window.innerHeight - r.bottom;
     const above = r.top;
-    const flip = below < 240 && above > below;
+    const flip = below < 260 && above > below;
     setPos({
       left,
       width,
+      flip,
       top: flip ? undefined : r.bottom + 6,
       bottom: flip ? window.innerHeight - r.top + 6 : undefined,
-      maxHeight: Math.max(140, Math.min(340, (flip ? above : below) - 16)),
+      maxHeight: Math.max(140, Math.min(320, (flip ? above : below) - 70)),
     });
   }, []);
 
@@ -284,14 +458,11 @@ export function TagPicker({
       const t = e.target as Node;
       if (!triggerRef.current?.contains(t) && !panelRef.current?.contains(t)) setOpen(false);
     };
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && setOpen(false);
     document.addEventListener("mousedown", onDown);
-    document.addEventListener("keydown", onKey);
     window.addEventListener("scroll", place, true);
     window.addEventListener("resize", place);
     return () => {
       document.removeEventListener("mousedown", onDown);
-      document.removeEventListener("keydown", onKey);
       window.removeEventListener("scroll", place, true);
       window.removeEventListener("resize", place);
     };
@@ -299,14 +470,24 @@ export function TagPicker({
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
-    if (!q) return options.slice(0, 300);
-    return options.filter((o) => o.toLowerCase().includes(q)).slice(0, 300);
+    const list = q ? options.filter((o) => o.toLowerCase().includes(q)) : options;
+    return list.slice(0, 300);
   }, [options, query]);
 
+  useEffect(() => {
+    listRef.current?.querySelector<HTMLElement>(`[data-idx="${cursor}"]`)?.scrollIntoView({ block: "nearest" });
+  }, [cursor]);
+
+  const choose = (v: string) => {
+    onChange(v);
+    setOpen(false);
+    triggerRef.current?.focus();
+  };
+
   const toneCls =
-    tone === "brand"
-      ? "border-brand-500/30 bg-brand-500/10 text-brand-200"
-      : "border-cyan-500/30 bg-cyan-500/10 text-cyan-200";
+    tone === "accent"
+      ? "border-[color-mix(in_oklab,var(--accent)_32%,transparent)] bg-[color-mix(in_oklab,var(--accent)_13%,transparent)] text-[color-mix(in_oklab,var(--accent)_60%,white)]"
+      : "border-sky-400/25 bg-sky-400/10 text-sky-200";
 
   return (
     <div className={cx("relative", className)}>
@@ -317,92 +498,118 @@ export function TagPicker({
         onClick={() => {
           setOpen((o) => !o);
           setQuery("");
+          setCursor(0);
         }}
         className={cx(
-          "flex h-8 w-full items-center justify-between gap-1.5 rounded-lg border px-2 text-xs font-medium transition disabled:opacity-50",
-          value ? toneCls : "border-white/10 bg-white/[0.03] text-slate-500",
+          "flex h-8 w-full items-center justify-between gap-1.5 rounded-full border px-3 text-xs font-medium transition-[background-color,border-color,transform] duration-200 active:scale-[0.98] disabled:opacity-50",
+          value ? toneCls : "border-white/10 bg-white/[0.04] text-label-3 hover:bg-white/[0.07]",
         )}
       >
         <span className="truncate">{value || placeholder}</span>
-        <ChevronDown className="size-3.5 shrink-0 opacity-60" />
+        <ChevronDown className={cx("size-3.5 shrink-0 opacity-60 transition-transform duration-300", open && "rotate-180")} />
       </button>
 
-      {open &&
-        pos &&
+      {typeof document !== "undefined" &&
         createPortal(
-          <div
-            ref={panelRef}
-            style={{ left: pos.left, top: pos.top, bottom: pos.bottom, width: pos.width }}
-            className="fixed z-80 flex flex-col overflow-hidden rounded-xl border border-white/10 bg-ink-800 shadow-2xl animate-rise"
-          >
-            <div className="flex items-center gap-2 border-b border-white/8 px-2.5">
-              <Search className="size-3.5 shrink-0 text-slate-500" />
-              <input
-                id={id}
-                autoFocus
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                placeholder="Filter tags"
-                className="w-full bg-transparent py-2 text-xs text-slate-100 outline-none placeholder:text-slate-600"
-              />
-              {value && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    onChange("");
-                    setOpen(false);
-                  }}
-                  className="shrink-0 rounded px-1 py-0.5 text-[11px] text-slate-500 hover:text-slate-200"
-                >
-                  clear
-                </button>
-              )}
-            </div>
-            <div className="overflow-y-auto p-1" style={{ maxHeight: pos.maxHeight }}>
-              {options.length === 0 ? (
-                <p className="px-2 py-3 text-center text-xs text-slate-500">
-                  No tags loaded. Paste your profile JSON under Connections.
-                </p>
-              ) : filtered.length === 0 ? (
-                <p className="px-2 py-3 text-center text-xs text-slate-500">No matching tag</p>
-              ) : (
-                filtered.map((opt) => (
-                  <button
-                    key={opt}
-                    type="button"
-                    onClick={() => {
-                      onChange(opt);
-                      setOpen(false);
+          <AnimatePresence>
+            {open && pos && (
+              <motion.div
+                ref={panelRef}
+                initial={{ opacity: 0, scale: 0.94, y: pos.flip ? 8 : -8 }}
+                animate={{ opacity: 1, scale: 1, y: 0 }}
+                exit={{ opacity: 0, scale: 0.96, y: pos.flip ? 4 : -4, transition: { duration: 0.12 } }}
+                transition={spring.snappy}
+                style={{
+                  left: pos.left,
+                  top: pos.top,
+                  bottom: pos.bottom,
+                  width: pos.width,
+                  transformOrigin: pos.flip ? "bottom left" : "top left",
+                }}
+                className="glass-strong fixed z-[90] flex flex-col overflow-hidden rounded-[18px]"
+              >
+                <div className="flex items-center gap-2 border-b border-white/[0.07] px-3">
+                  <Search className="size-3.5 shrink-0 text-label-3" />
+                  <input
+                    id={id}
+                    autoFocus
+                    value={query}
+                    onChange={(e) => {
+                      setQuery(e.target.value);
+                      setCursor(0);
                     }}
-                    className={cx(
-                      "flex w-full items-center justify-between rounded-md px-2 py-1.5 text-left text-xs transition",
-                      opt === value
-                        ? "bg-brand-500/15 text-brand-200"
-                        : "text-slate-300 hover:bg-white/6",
-                    )}
-                  >
-                    <span className="truncate">{opt}</span>
-                    {opt === value && <Check className="size-3.5 shrink-0" />}
-                  </button>
-                ))
-              )}
-            </div>
-          </div>,
+                    onKeyDown={(e) => {
+                      if (e.key === "ArrowDown") {
+                        e.preventDefault();
+                        setCursor((c) => Math.min(filtered.length - 1, c + 1));
+                      } else if (e.key === "ArrowUp") {
+                        e.preventDefault();
+                        setCursor((c) => Math.max(0, c - 1));
+                      } else if (e.key === "Enter" && filtered[cursor]) {
+                        e.preventDefault();
+                        choose(filtered[cursor]);
+                      } else if (e.key === "Escape") {
+                        setOpen(false);
+                      }
+                    }}
+                    placeholder="Search tags"
+                    className="w-full bg-transparent py-2.5 text-xs text-label outline-none placeholder:text-label-4"
+                  />
+                  {value && (
+                    <button
+                      type="button"
+                      onClick={() => choose("")}
+                      className="shrink-0 rounded-full px-1.5 py-0.5 text-[11px] text-label-3 hover:bg-white/10 hover:text-label"
+                    >
+                      clear
+                    </button>
+                  )}
+                </div>
+                <div ref={listRef} className="overflow-y-auto p-1.5" style={{ maxHeight: pos.maxHeight }}>
+                  {options.length === 0 ? (
+                    <p className="px-2 py-4 text-center text-xs text-label-3">
+                      No tags yet — add your profile under Connections.
+                    </p>
+                  ) : filtered.length === 0 ? (
+                    <p className="px-2 py-4 text-center text-xs text-label-3">No matching tag</p>
+                  ) : (
+                    filtered.map((opt, i) => (
+                      <button
+                        key={opt}
+                        type="button"
+                        data-idx={i}
+                        onMouseEnter={() => setCursor(i)}
+                        onClick={() => choose(opt)}
+                        className={cx(
+                          "flex w-full items-center justify-between rounded-[10px] px-2.5 py-1.5 text-left text-xs transition-colors duration-150",
+                          i === cursor ? "bg-white/[0.09] text-label" : "text-label-2",
+                        )}
+                      >
+                        <span className="truncate">{opt}</span>
+                        {opt === value && <Check className="size-3.5 shrink-0 text-accent" />}
+                      </button>
+                    ))
+                  )}
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>,
           document.body,
         )}
     </div>
   );
 }
 
-/* ---------------------------------------------------------------- drawer */
+/* ---------------------------------------------------------------- sheet */
 
-export function Drawer({
+export function Sheet({
   open,
   onClose,
   title,
   subtitle,
   children,
   footer,
+  header,
 }: {
   open: boolean;
   onClose: () => void;
@@ -410,55 +617,49 @@ export function Drawer({
   subtitle?: string;
   children: ReactNode;
   footer?: ReactNode;
+  header?: ReactNode;
 }) {
   useEffect(() => {
+    if (!open) return;
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
-    if (open) document.addEventListener("keydown", onKey);
+    document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
   }, [open, onClose]);
 
-  if (!open) return null;
-
   return (
-    <div className="fixed inset-0 z-50 flex justify-end">
-      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
-      <aside className="relative flex h-full w-full max-w-xl flex-col border-l border-white/10 bg-ink-900 shadow-2xl animate-rise">
-        <header className="flex items-start justify-between gap-4 border-b border-white/8 px-6 py-4">
-          <div>
-            <h2 className="text-base font-semibold text-slate-100">{title}</h2>
-            {subtitle && <p className="mt-0.5 text-xs text-slate-500">{subtitle}</p>}
-          </div>
-          <Button variant="ghost" size="sm" onClick={onClose} aria-label="Close">
-            <X className="size-4" />
-          </Button>
-        </header>
-        <div className="flex-1 overflow-y-auto px-6 py-5">{children}</div>
-        {footer && <footer className="border-t border-white/8 px-6 py-4">{footer}</footer>}
-      </aside>
-    </div>
-  );
-}
-
-/* --------------------------------------------------------------- toaster */
-
-export type Toast = { id: number; tone: "ok" | "err" | "info"; message: string };
-
-export function Toaster({ toasts }: { toasts: Toast[] }) {
-  return (
-    <div className="pointer-events-none fixed bottom-5 left-1/2 z-[60] flex w-full max-w-md -translate-x-1/2 flex-col gap-2 px-4">
-      {toasts.map((t) => (
-        <div
-          key={t.id}
-          className={cx(
-            "animate-rise rounded-xl border px-4 py-2.5 text-sm shadow-2xl backdrop-blur-xl",
-            t.tone === "ok" && "border-emerald-500/30 bg-emerald-500/12 text-emerald-200",
-            t.tone === "err" && "border-rose-500/30 bg-rose-500/12 text-rose-200",
-            t.tone === "info" && "border-white/12 bg-ink-800/90 text-slate-200",
-          )}
-        >
-          {t.message}
+    <AnimatePresence>
+      {open && (
+        <div className="fixed inset-0 z-[60] flex justify-end p-2 sm:p-3">
+          <motion.div
+            className="absolute inset-0 bg-black/55"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.35 }}
+            onClick={onClose}
+          />
+          <motion.aside
+            initial={{ x: "calc(100% + 24px)", scale: 0.98 }}
+            animate={{ x: 0, scale: 1 }}
+            exit={{ x: "calc(100% + 24px)", scale: 0.98 }}
+            transition={spring.smooth}
+            className="glass-strong rim relative flex h-full w-full max-w-[540px] flex-col overflow-hidden rounded-[30px]"
+          >
+            <header className="flex items-start justify-between gap-4 px-6 pb-3 pt-5">
+              <div>
+                <h2 className="text-lg font-semibold tracking-[-0.02em] text-label">{title}</h2>
+                {subtitle && <p className="mt-0.5 text-xs text-label-3">{subtitle}</p>}
+              </div>
+              <Button variant="ghost" size="icon-sm" onClick={onClose} aria-label="Close">
+                <X className="size-4" />
+              </Button>
+            </header>
+            {header && <div className="px-6 pb-3">{header}</div>}
+            <div className="flex-1 overflow-y-auto px-6 pb-6 pt-2">{children}</div>
+            {footer && <footer className="border-t border-white/[0.07] px-6 py-4">{footer}</footer>}
+          </motion.aside>
         </div>
-      ))}
-    </div>
+      )}
+    </AnimatePresence>
   );
 }
