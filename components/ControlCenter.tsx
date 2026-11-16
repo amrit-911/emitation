@@ -6,7 +6,10 @@ import { AnimatePresence, motion } from "motion/react";
 import {
   AlertTriangle,
   CheckCircle2,
+  ClipboardList,
+  CodeXml,
   Download,
+  FlaskConical,
   GitBranch,
   KeyRound,
   Palette,
@@ -34,13 +37,19 @@ import {
   spring,
 } from "./ui";
 import { RepoPicker } from "./RepoPicker";
-import { ACCENTS, roleOf } from "@/lib/roles";
+import { ACCENTS, ROLE_LIST, roleOf } from "@/lib/roles";
 import { parseProfile } from "@/lib/emit";
 import { DEFAULT_PROFILE_JSON } from "@/lib/default-profile";
-import type { EmitProfile, Repo, RepoMapping, RepoProvider, Settings } from "@/lib/types";
+import type { EmitProfile, Repo, RepoMapping, RepoProvider, Role, Settings } from "@/lib/types";
 
 export type CenterTab = "sources" | "defaults" | "connections" | "look";
 type Conn = "emit" | "github" | "gitlab" | "bitbucket";
+
+const ROLE_ICON: Record<Role, ReactNode> = {
+  developer: <CodeXml className="size-4" />,
+  tester: <FlaskConical className="size-4" />,
+  ba: <ClipboardList className="size-4" />,
+};
 
 export function ControlCenter({
   open,
@@ -808,6 +817,30 @@ function Look({
 
   return (
     <div>
+      <Group title="I am a">
+        <div className="grid grid-cols-3 gap-2 py-2.5">
+          {ROLE_LIST.map((r) => {
+            const on = settings.role === r.id;
+            return (
+              <button
+                key={r.id}
+                type="button"
+                onClick={() => patch({ role: r.id })}
+                className={cx(
+                  "relative flex flex-col items-center gap-2 rounded-[16px] border px-2 py-3.5 text-xs font-medium transition-[background-color,border-color,color,transform] duration-300 active:scale-95",
+                  on
+                    ? "border-[color-mix(in_oklab,var(--accent)_45%,transparent)] bg-[color-mix(in_oklab,var(--accent)_12%,transparent)] text-label"
+                    : "border-white/[0.07] text-label-3 hover:bg-white/[0.05] hover:text-label-2",
+                )}
+              >
+                <span className={on ? "text-accent" : ""}>{ROLE_ICON[r.id]}</span>
+                {r.label}
+              </button>
+            );
+          })}
+        </div>
+      </Group>
+
       <Group title="Accent">
         <div className="flex items-center justify-between gap-2 py-3">
           {ACCENTS.map((a) => {
@@ -890,7 +923,7 @@ function Look({
       </Group>
 
       <Button className="w-full" onClick={onReplayTutorial}>
-        <RotateCcw className="size-3.5" /> Replay the tour (and change role)
+        <RotateCcw className="size-3.5" /> Replay the tour
       </Button>
     </div>
   );

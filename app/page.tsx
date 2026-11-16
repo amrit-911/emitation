@@ -990,13 +990,15 @@ function TopBar({
       </button>
 
       <div className="glass-float pointer-events-auto flex h-11 items-center gap-0.5 rounded-full p-1">
-        <span
-          className="flex h-9 items-center gap-1.5 px-3 text-xs font-medium text-label-2"
-          title={`${roleOf(role).label} mode — set during the tour`}
+        <button
+          type="button"
+          onClick={() => onOpen("look")}
+          className="flex h-9 items-center gap-1.5 rounded-full px-3 text-xs font-medium text-label-2 transition hover:bg-white/[0.08] hover:text-label"
+          title="Change role"
         >
           {role ? ROLE_ICON[role] : <Sparkles className="size-4" />}
           <span className="hidden sm:inline">{roleOf(role).short}</span>
-        </span>
+        </button>
         {codeFirst && (
           <button
             type="button"
