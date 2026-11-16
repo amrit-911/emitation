@@ -106,15 +106,8 @@ export default function Home() {
   const [center, setCenter] = useState<{ open: boolean; tab: CenterTab }>({ open: false, tab: "defaults" });
   /** null = decide from settings: first visit gets the tour. */
   const [tourOpen, setTourOpen] = useState<boolean | null>(null);
-  // Only brand-new users get the tour on their own; anyone already connected can replay it from Look.
-  const alreadySetUp = Boolean(
-    settings.token ||
-      settings.githubToken ||
-      settings.gitlabToken ||
-      settings.bitbucketToken ||
-      settings.selectedRepos.length,
-  );
-  const tour = tourOpen ?? (hydrated && !settings.onboarded && !alreadySetUp);
+  // Everyone sees the tour once — new users and existing ones opening this update for the first time.
+  const tour = tourOpen ?? (hydrated && !settings.onboarded);
   const [now] = useState(() => Date.now());
 
   const composer = useRef<ComposerHandle>(null);
