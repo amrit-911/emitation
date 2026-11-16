@@ -50,21 +50,23 @@ export function GitlabMark({ className }: { className?: string }) {
   );
 }
 
-/** The Emitation mark: a spark inside a soft rounded square. */
-export function Logo({ className, live }: { className?: string; live?: boolean }) {
+/**
+ * The Emitation wordmark: the name in Geist, tightly set, ending in a single
+ * accent full stop. The stop breathes while the AI is working.
+ */
+export function Wordmark({ className, live }: { className?: string; live?: boolean }) {
   return (
     <span
-      className={cx(
-        "relative grid place-items-center overflow-hidden rounded-[10px] shadow-[0_8px_24px_-8px_var(--accent)]",
-        className,
-      )}
-      style={{ background: "var(--accent-grad)" }}
+      role="img"
+      aria-label="Emitation"
+      className={cx("inline-flex items-baseline font-semibold leading-none tracking-[-0.055em] text-label", className)}
     >
-      {live && <span className="orb absolute inset-0 rounded-none opacity-60 after:hidden" />}
-      <svg viewBox="0 0 24 24" className="relative size-[58%] text-white" fill="currentColor" aria-hidden>
-        <path d="M12 2.5c.4 4.9 2.6 7.1 7.5 7.5-4.9.4-7.1 2.6-7.5 7.5-.4-4.9-2.6-7.1-7.5-7.5 4.9-.4 7.1-2.6 7.5-7.5Z" />
-        <path d="M18.5 15c.18 2.1 1.1 3.02 3.2 3.2-2.1.18-3.02 1.1-3.2 3.2-.18-2.1-1.1-3.02-3.2-3.2 2.1-.18 3.02-1.1 3.2-3.2Z" opacity={0.75} />
-      </svg>
+      <span aria-hidden>emitation</span>
+      <span
+        aria-hidden
+        className={cx("wordmark-dot ml-[0.05em] inline-block size-[0.19em] rounded-full", live && "is-live")}
+        style={{ background: "var(--accent-grad)" }}
+      />
     </span>
   );
 }

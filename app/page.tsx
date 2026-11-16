@@ -30,7 +30,7 @@ import { RunPanel, StatStrip, rangeLabel } from "@/components/RunPanel";
 import type { RunState, Step } from "@/components/RunPanel";
 import { BlurText, Island, RevealLine } from "@/components/fx";
 import type { IslandState } from "@/components/fx";
-import { Logo, cx, spring, useSpotlight } from "@/components/ui";
+import { Wordmark, cx, spring, useSpotlight } from "@/components/ui";
 import { useSettings } from "@/lib/storage";
 import { roleOf } from "@/lib/roles";
 import { localPlan } from "@/lib/localPlan";
@@ -904,7 +904,7 @@ export default function Home() {
       )}
 
       <PushDock
-        show={days.length > 0 && busy !== "run"}
+        show={days.length > 0 && busy !== "run" && !tour}
         entries={pushable.length}
         hours={totalHours}
         invalid={invalidCount}
@@ -988,10 +988,9 @@ function TopBar({
       <button
         type="button"
         onClick={onHome}
-        className="glass-float pointer-events-auto flex h-11 items-center gap-2.5 rounded-full pl-1.5 pr-4 transition-transform duration-300 active:scale-95"
+        className="glass-float pointer-events-auto flex h-11 items-center rounded-full px-5 transition-transform duration-300 active:scale-95"
       >
-        <Logo className="size-8 rounded-full" live={aiOn} />
-        <span className="text-[13px] font-semibold tracking-[-0.01em]">Emitation</span>
+        <Wordmark className="text-[19px]" live={aiOn} />
       </button>
 
       <div className="glass-float pointer-events-auto flex h-11 items-center gap-0.5 rounded-full p-1">

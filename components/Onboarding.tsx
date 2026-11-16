@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import type { ReactNode } from "react";
+import type { CSSProperties, ReactNode } from "react";
 import {
   AnimatePresence,
   motion,
@@ -28,7 +28,7 @@ import {
   ShieldCheck,
 } from "lucide-react";
 import { BlurText, CheckDraw, RevealLine, Ring } from "./fx";
-import { BitbucketMark, Button, GithubMark, GitlabMark, Logo, Orb, cx, spring } from "./ui";
+import { BitbucketMark, Button, GithubMark, GitlabMark, Orb, Wordmark, cx, spring } from "./ui";
 import { ROLE_LIST, roleOf } from "@/lib/roles";
 import type { Role } from "@/lib/types";
 
@@ -112,12 +112,15 @@ export function Onboarding({
       <div className="fixed inset-0 bg-[radial-gradient(120%_90%_at_50%_0%,rgba(4,5,10,0.25),rgba(4,5,10,0.7))]" />
 
       <div className="relative flex items-center justify-between px-6 pt-5">
-        <div className="flex items-center gap-2.5">
-          <Logo className="size-7" />
-          <span className="text-sm font-semibold tracking-[-0.01em]">Emitation</span>
-        </div>
+        <AnimatePresence>
+          {scene !== "welcome" && (
+            <motion.span initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}>
+              <Wordmark className="text-[19px]" />
+            </motion.span>
+          )}
+        </AnimatePresence>
         {i < SCENES.length - 1 && (
-          <Button variant="ghost" size="sm" onClick={onDone}>
+          <Button variant="ghost" size="sm" onClick={onDone} className="ml-auto">
             Skip
           </Button>
         )}
@@ -224,31 +227,35 @@ function Heading({ eyebrow, title, sub }: { eyebrow?: string; title: ReactNode; 
 function Welcome() {
   return (
     <div className="flex flex-col items-center text-center">
-      <motion.div
-        initial={{ scale: 0.4, opacity: 0, rotate: -20 }}
-        animate={{ scale: 1, opacity: 1, rotate: 0 }}
-        transition={{ ...spring.bouncy, delay: 0.1 }}
-        className="relative mb-10"
+      {/* The wordmark resolves letter by letter, then its full stop drops into place. */}
+      <h1
+        aria-label="Emitation"
+        className="mb-8 flex items-baseline text-[76px] font-semibold leading-none tracking-[-0.065em] text-label sm:text-[112px]"
       >
+        {"emitation".split("").map((ch, i) => (
+          <span key={i} aria-hidden className="word-in" style={{ "--i": i, "--step": "55ms", "--d": "120ms" } as CSSProperties}>
+            {ch}
+          </span>
+        ))}
         <motion.span
-          className="absolute -inset-10 rounded-full blur-3xl"
-          style={{ background: "conic-gradient(var(--ai-gradient))" }}
-          animate={{ opacity: [0.35, 0.6, 0.35], scale: [0.9, 1.05, 0.9], rotate: 360 }}
-          transition={{ duration: 6, repeat: Infinity, ease: "easeInOut" }}
+          aria-hidden
+          initial={{ y: "-1.2em", opacity: 0, scale: 0.3 }}
+          animate={{ y: 0, opacity: 1, scale: 1 }}
+          transition={{ type: "spring", bounce: 0.55, visualDuration: 0.55, delay: 0.75 }}
+          className="ml-[0.05em] inline-block size-[0.19em] rounded-full shadow-[0_0_28px_var(--accent)]"
+          style={{ background: "var(--accent-grad)" }}
         />
-        <Logo className="relative size-24 rounded-[28px]" live />
-      </motion.div>
-      <h1 className="text-balance text-[44px] font-semibold leading-[1.05] tracking-[-0.045em] sm:text-[64px]">
-        <BlurText text="Your timesheet," delay={250} step={60} />
-        <br />
-        <RevealLine delay={550} className="text-ai pb-2">
+      </h1>
+      <h2 className="text-balance text-[26px] font-semibold leading-[1.15] tracking-[-0.035em] sm:text-[34px]">
+        <BlurText text="Your timesheet," delay={900} step={50} />{" "}
+        <RevealLine delay={1150} className="text-accent-grad pb-1">
           just ask.
         </RevealLine>
-      </h1>
-      <p className="mx-auto mt-6 max-w-lg text-pretty text-[16px] leading-relaxed text-label-2">
+      </h2>
+      <p className="mx-auto mt-5 max-w-lg text-pretty text-[16px] leading-relaxed text-label-2">
         <BlurText
           text="Describe your week in one sentence. Emitation reads your commits, folders and notes, writes every entry with the right tags, and pushes it to Emit."
-          delay={800}
+          delay={1300}
           step={12}
         />
       </p>
