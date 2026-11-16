@@ -242,7 +242,7 @@ function Welcome() {
           initial={{ y: "-1.2em", opacity: 0, scale: 0.3 }}
           animate={{ y: 0, opacity: 1, scale: 1 }}
           transition={{ type: "spring", bounce: 0.55, visualDuration: 0.55, delay: 0.75 }}
-          className="ml-[0.05em] inline-block size-[0.19em] rounded-full shadow-[0_0_28px_var(--accent)]"
+          className="ml-[0.2em] inline-block size-[0.19em] rounded-full shadow-[0_0_28px_var(--accent)]"
           style={{ background: "var(--accent-grad)" }}
         />
       </h1>

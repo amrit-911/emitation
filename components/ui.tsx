@@ -64,7 +64,7 @@ export function Wordmark({ className, live }: { className?: string; live?: boole
       <span aria-hidden>emitation</span>
       <span
         aria-hidden
-        className={cx("wordmark-dot ml-[0.05em] inline-block size-[0.19em] rounded-full", live && "is-live")}
+        className={cx("wordmark-dot ml-[0.2em] inline-block size-[0.19em] rounded-full", live && "is-live")}
         style={{ background: "var(--accent-grad)" }}
       />
     </span>
