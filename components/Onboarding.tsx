@@ -26,7 +26,6 @@ import {
   KeyRound,
   RotateCcw,
   ShieldCheck,
-  X,
 } from "lucide-react";
 import { BlurText, CheckDraw, RevealLine, Ring } from "./fx";
 import { BitbucketMark, Button, GithubMark, GitlabMark, Orb, cx, spring } from "./ui";
@@ -77,15 +76,18 @@ export function Onboarding({
   onConnect: () => void;
 }) {
   const [i, setI] = useState(0);
+  /** Furthest step reached — the dots can go back, never ahead. */
+  const [reached, setReached] = useState(0);
   const [dir, setDir] = useState(1);
   const scene: Scene = SCENES[i];
   const canNext = scene !== "role" || Boolean(role);
 
   const go = (next: number) => {
     if (next < 0 || next >= SCENES.length) return;
-    if (next > i && !canNext) return;
+    if (next > i && (!canNext || next > Math.max(reached, i + 1))) return;
     setDir(next > i ? 1 : -1);
     setI(next);
+    setReached((r) => Math.max(r, next));
   };
 
   useEffect(() => {
@@ -94,7 +96,6 @@ export function Onboarding({
         if (i === SCENES.length - 1) onDone();
         else go(i + 1);
       } else if (e.key === "ArrowLeft") go(i - 1);
-      else if (e.key === "Escape") onDone();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -111,22 +112,18 @@ export function Onboarding({
         animate={{ opacity: 1 }}
         exit={{ opacity: 0 }}
         transition={{ duration: 0.35 }}
-        onClick={onDone}
       />
       <motion.div
         initial={{ opacity: 0, scale: 0.94, y: 24 }}
         animate={{ opacity: 1, scale: 1, y: 0 }}
         exit={{ opacity: 0, scale: 0.96, y: 12, transition: { duration: 0.2 } }}
         transition={spring.smooth}
-        className="glass-strong rim relative flex max-h-[min(92vh,760px)] w-full max-w-[880px] flex-col overflow-hidden rounded-[32px]"
+        className="glass-strong rim relative flex h-[min(92vh,620px)] w-full max-w-[880px] flex-col overflow-hidden rounded-[32px]"
       >
-        <div className="flex items-center justify-between px-6 pt-5">
+        <div className="flex h-8 items-center px-6 pt-5">
           <span className="text-[11px] font-semibold uppercase tracking-[0.16em] text-label-4">
             Quick tour · {i + 1}/{SCENES.length}
           </span>
-          <Button variant="ghost" size="icon-sm" onClick={onDone} aria-label="Close tour" title="Close">
-            <X className="size-4" />
-          </Button>
         </div>
 
         <div className="relative flex min-h-0 flex-1 items-center justify-center overflow-y-auto overflow-x-hidden px-5 py-6 sm:px-10">
@@ -177,7 +174,8 @@ export function Onboarding({
                 type="button"
                 aria-label={`Step ${k + 1}`}
                 onClick={() => go(k)}
-                className="group grid h-4 place-items-center"
+                disabled={k > reached}
+                className="group grid h-4 place-items-center disabled:cursor-default"
               >
                 <motion.span
                   animate={{ width: k === i ? 24 : 6, opacity: k === i ? 1 : k < i ? 0.55 : 0.25 }}
