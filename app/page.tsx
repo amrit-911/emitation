@@ -111,6 +111,8 @@ export default function Home() {
   const [now] = useState(() => Date.now());
 
   const composer = useRef<ComposerHandle>(null);
+  /** Every request that shaped the timeline on screen, oldest first — follow-ups build on these. */
+  const history = useRef<string[]>([]);
   const abort = useRef<AbortController | null>(null);
   const toastId = useRef(0);
 
@@ -131,6 +133,7 @@ export default function Home() {
       setConfig(draft.config);
       setPulled(draft.commits ?? []);
       if (draft.prompt) {
+        history.current = [draft.prompt];
         setRun({
           id: "restored",
           prompt: draft.prompt,
@@ -311,6 +314,13 @@ export default function Home() {
           });
           notify("info", "AI planner unavailable — read your prompt without it");
         }
+        // With a timeline on screen, a follow-up edits it — unless it asks for a different
+        // period or plainly says to start again.
+        const fresh = /\b(start (over|again|fresh)|from scratch|new timeline|reset|re-?pull|pull (again|fresh))\b/i.test(text);
+        if (hasTimeline && plan.mode === "build" && !fresh) {
+          const inside = plan.config.from >= config!.from && plan.config.to <= config!.to;
+          if (inside) plan = { ...plan, mode: "refine" };
+        }
         // Dates picked in the + menu always win over what the sentence implies.
         if (lockedRange) {
           const inside = hasTimeline && lockedRange.from >= config!.from && lockedRange.to <= config!.to;
@@ -427,8 +437,11 @@ export default function Home() {
         setStep("write", { state: "active", label: `Writing ${targets.length} day${targets.length === 1 ? "" : "s"}` });
         setWriting(new Set(targets.map((d) => d.date)));
         try {
+          const earlier = refine ? history.current : [];
           const { written, truncated } = await writeDays({
-            prompt: text,
+            prompt: earlier.length
+              ? `${text}\n\nThis is a follow-up. Earlier requests already applied to this timeline — keep their effects unless this one changes them:\n${earlier.map((p) => `- ${p}`).join("\n")}`
+              : text,
             persona: role.persona,
             style: settings.aiPrompt,
             contextFor: (f, t) => describeAttachments(attachments, f, t),
@@ -464,6 +477,7 @@ export default function Home() {
         }
       }
 
+      history.current = refine ? [...history.current, text] : [text];
       setRun((r) => (r ? { ...r, status: "done", finishedAt: Date.now() } : r));
       if (aiError) notify("err", `AI: ${aiError}`);
       else notify("ok", refine ? "Timeline updated" : "Ready — review, then push");
@@ -648,6 +662,7 @@ export default function Home() {
     setPulled([]);
     setRun(null);
     setLastPlan(null);
+    history.current = [];
     saveDraft(null);
     composer.current?.focus();
   }

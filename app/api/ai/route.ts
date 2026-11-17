@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
-import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import { generateObject } from "ai";
+import { geminiModel } from "@/lib/ai";
 import { z } from "zod";
 
 export const runtime = "nodejs";
@@ -59,16 +59,11 @@ function snap(value: string | undefined, allowed: string[], fallback: string): s
 }
 
 export async function POST(req: Request) {
-  const apiKey =
-    process.env.GOOGLE_GENERATIVE_AI_API_KEY ||
-    process.env.GEMINI_API_KEY ||
-    process.env.GOOGLE_API_KEY;
-
-  if (!apiKey) {
-    return NextResponse.json(
-      { error: "No Gemini key found. Set GEMINI_API_KEY in .env.local and restart the dev server." },
-      { status: 500 },
-    );
+  let model: ReturnType<typeof geminiModel>;
+  try {
+    model = geminiModel();
+  } catch (err) {
+    return NextResponse.json({ error: (err as Error).message }, { status: 500 });
   }
 
   const body = (await req.json()) as Body;
@@ -79,9 +74,6 @@ export async function POST(req: Request) {
   const activities = body.activities ?? [];
   const fallbackProject = body.fallbackProject || projects[0] || "";
   const fallbackActivity = body.fallbackActivity || activities[0] || "";
-
-  const google = createGoogleGenerativeAI({ apiKey });
-  const model = google(process.env.GEMINI_MODEL || "gemini-2.5-flash");
 
   const system = [
     `You write daily timesheet entries for a ${body.persona || "software engineer"} on the Emit time-tracking tool.`,

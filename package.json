@@ -9,8 +9,9 @@
     "lint": "eslint"
   },
   "dependencies": {
-    "@ai-sdk/google": "^4.0.26",
-    "ai": "^7.0.40",
+    "@ai-sdk/google": "^4.0.121",
+    "@ai-sdk/google-vertex": "^5.0.141",
+    "ai": "^7.0.173",
     "date-fns": "^4.4.0",
     "lucide-react": "^1.27.0",
     "motion": "^12.43.0",

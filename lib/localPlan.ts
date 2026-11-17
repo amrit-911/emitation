@@ -114,10 +114,12 @@ export function localPlan(args: {
   const p = prompt.toLowerCase();
   const range = findRange(prompt, today);
   const mentionsCode = /\bcommits?\b|\brepos?\b|\bcode\b|\bgit\b|\bpush(es|ed)?\b/.test(p);
-  const refine = Boolean(timeline) && !range && !mentionsCode;
+  const fresh = /\b(start (over|again|fresh)|from scratch|new timeline|reset|re-?pull|pull (again|fresh))\b/.test(p);
+  const inside = Boolean(timeline && (!range || (range.from >= timeline.from && range.to <= timeline.to)));
+  const refine = Boolean(timeline) && inside && !fresh;
 
   const fallback = { from: mondayOf(today), to: today };
-  const { from, to } = refine ? timeline! : (range ?? fallback);
+  const { from, to } = refine ? (range ?? timeline!) : (range ?? fallback);
 
   const hours = /(\d+(?:\.\d+)?)\s*(?:h|hrs?|hours?)\s*(?:a|per|\/)\s*day/.exec(p);
   const sat = /\b(include|fill|with)\b[^.]*\b(saturdays?|weekends?)\b/.test(p) ? true : null;

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
-import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import { generateObject } from "ai";
+import { geminiModel } from "@/lib/ai";
 import { z } from "zod";
 
 export const runtime = "nodejs";
@@ -65,15 +65,11 @@ const daysBetween = (a: string, b: string) =>
   Math.round((Date.parse(`${b}T00:00:00Z`) - Date.parse(`${a}T00:00:00Z`)) / 86_400_000);
 
 export async function POST(req: Request) {
-  const apiKey =
-    process.env.GOOGLE_GENERATIVE_AI_API_KEY ||
-    process.env.GEMINI_API_KEY ||
-    process.env.GOOGLE_API_KEY;
-  if (!apiKey) {
-    return NextResponse.json(
-      { error: "No Gemini key found. Set GEMINI_API_KEY in .env.local and restart the dev server." },
-      { status: 500 },
-    );
+  let model: ReturnType<typeof geminiModel>;
+  try {
+    model = geminiModel();
+  } catch (err) {
+    return NextResponse.json({ error: (err as Error).message }, { status: 500 });
   }
 
   const body = (await req.json()) as Body;
@@ -91,9 +87,6 @@ export async function POST(req: Request) {
   const repos = body.repos ?? [];
   const folders = body.folders ?? [];
 
-  const google = createGoogleGenerativeAI({ apiKey });
-  const model = google(process.env.GEMINI_MODEL || "gemini-2.5-flash");
-
   const system = [
     "You turn a timesheet request into run settings for Emitation, which fills Emit timesheets.",
     `Today is ${today} (${body.weekday ?? ""}). The user is a ${body.persona ?? "software engineer"}.`,
@@ -108,9 +101,11 @@ export async function POST(req: Request) {
     "- Never put `to` after today unless the user explicitly asks for future days.",
     "",
     "Mode:",
-    "- 'refine' when a timeline exists and the request only adjusts it (skip a day, add a meeting,",
-    "  rewrite, shorten, fill remaining gaps, change tags) without naming a new period or asking to re-pull.",
-    "- 'build' for everything else.",
+    "- When a TIMELINE exists, default to 'refine': the user is editing what's on screen (skip a day,",
+    "  add a meeting, rewrite, shorten, retag, change hours, fill gaps, mention the same commits again).",
+    "  Keep from/to inside the timeline — narrow them only if the request is about specific days.",
+    "- 'build' only when there is no timeline, the request names a period outside it, or the user",
+    "  plainly asks to start over / pull fresh.",
     "",
     "Sources:",
     "- useCommits = true when the request mentions commits, code, repos, pushes, a repo/project name,",
