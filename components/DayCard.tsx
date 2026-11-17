@@ -71,6 +71,7 @@ function DayCardImpl({
 
   return (
     <motion.article
+      id={`day-${day.date}`}
       initial={{ opacity: 0, y: 22 }}
       whileInView={{ opacity: 1, y: 0 }}
       viewport={{ once: true, margin: "0px 0px -40px 0px" }}

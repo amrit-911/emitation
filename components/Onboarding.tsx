@@ -271,11 +271,13 @@ function Welcome() {
 function TiltCard({
   children,
   selected,
+  dimmed,
   onClick,
   delay,
 }: {
   children: ReactNode;
   selected: boolean;
+  dimmed?: boolean;
   onClick: () => void;
   delay: number;
 }) {
@@ -296,7 +298,10 @@ function TiltCard({
       initial={{ opacity: 0, y: 30 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ ...spring.smooth, delay }}
+      whileHover={{ y: -4 }}
       whileTap={{ scale: 0.97 }}
+      role="radio"
+      aria-checked={selected}
       onPointerMove={(e) => {
         const r = ref.current!.getBoundingClientRect();
         px.set((e.clientX - r.left) / r.width);
@@ -308,13 +313,20 @@ function TiltCard({
       }}
       style={{ rotateX: rx, rotateY: ry, transformPerspective: 900 }}
       className={cx(
-        "glass rim group relative flex flex-col items-start overflow-hidden rounded-[28px] p-6 text-left transition-[border-color,box-shadow] duration-500",
-        selected &&
-          "border-[color-mix(in_oklab,var(--accent)_55%,transparent)] shadow-[0_0_0_1px_color-mix(in_oklab,var(--accent)_40%,transparent),0_30px_80px_-30px_var(--accent)]",
+        "glass rim group relative flex cursor-pointer flex-col items-start overflow-hidden rounded-[28px] p-6 text-left transition-[border-color,box-shadow,opacity,background-color] duration-300",
+        selected
+          ? "border-[color-mix(in_oklab,var(--accent)_55%,transparent)] bg-[color-mix(in_oklab,var(--accent)_8%,transparent)] shadow-[0_0_0_1px_color-mix(in_oklab,var(--accent)_40%,transparent),0_30px_80px_-30px_var(--accent)]"
+          : "hover:border-white/25 hover:shadow-[0_24px_60px_-28px_rgba(0,0,0,0.9)]",
+        dimmed && "opacity-60 hover:opacity-100",
       )}
     >
       <motion.span className="pointer-events-none absolute inset-0 opacity-0 transition-opacity duration-300 group-hover:opacity-100" style={{ background: glare }} />
       {children}
+      {/* a radio, so it reads as something to pick */}
+      <span
+        aria-hidden
+        className="absolute right-4 top-4 size-7 rounded-full border-2 border-white/25 transition-colors duration-300 group-hover:border-white/50"
+      />
       <AnimatePresence>
         {selected && (
           <motion.span
@@ -329,6 +341,15 @@ function TiltCard({
           </motion.span>
         )}
       </AnimatePresence>
+      <span
+        className={cx(
+          "mt-5 inline-flex items-center gap-1 text-xs font-medium transition-colors duration-300",
+          selected ? "text-accent" : "text-label-3 group-hover:text-label",
+        )}
+      >
+        {selected ? "Selected" : "Choose"}
+        {!selected && <ArrowRight className="size-3.5 transition-transform duration-300 group-hover:translate-x-0.5" />}
+      </span>
     </motion.button>
   );
 }
@@ -341,9 +362,15 @@ function RolePick({ role, onRole }: { role: Role | null; onRole: (r: Role) => vo
         title="What do you do?"
         sub="Examples, suggestions and what's front and centre adapt to your role. You can switch anytime."
       />
-      <div className="grid gap-4 [perspective:1200px] sm:grid-cols-3">
+      <div className="grid gap-4 [perspective:1200px] sm:grid-cols-3" role="radiogroup" aria-label="Your role">
         {ROLE_LIST.map((r, k) => (
-          <TiltCard key={r.id} selected={role === r.id} onClick={() => onRole(r.id)} delay={0.15 + k * 0.08}>
+          <TiltCard
+            key={r.id}
+            selected={role === r.id}
+            dimmed={Boolean(role) && role !== r.id}
+            onClick={() => onRole(r.id)}
+            delay={0.15 + k * 0.08}
+          >
             <span
               className={cx(
                 "mb-8 grid size-12 place-items-center rounded-2xl border border-white/10 transition-colors duration-500",
@@ -369,6 +396,9 @@ function RolePick({ role, onRole }: { role: Role | null; onRole: (r: Role) => vo
           </TiltCard>
         ))}
       </div>
+      <p className={cx("mt-5 text-center text-xs transition-opacity duration-300", role ? "opacity-0" : "text-label-3")}>
+        Pick the one closest to your work to continue
+      </p>
     </div>
   );
 }

@@ -617,7 +617,16 @@ export default function Home() {
     setProgress({ done: 0, total: queue.length });
     let ok = 0;
     let failed = 0;
+    let lastDate = "";
     for (const entry of queue) {
+      // Follow the push down the timeline: bring each day into view as its turn comes.
+      if (entry.date !== lastDate) {
+        lastDate = entry.date;
+        document.getElementById(`day-${entry.date}`)?.scrollIntoView({
+          behavior: settings.reduceMotion ? "auto" : "smooth",
+          block: "center",
+        });
+      }
       onEntryChange(entry.id, { status: "sending", message: undefined });
       try {
         await pushEntry({ settings, profile, entry, dryRun });
